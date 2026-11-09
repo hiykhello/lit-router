@@ -36,7 +36,7 @@
 ## 安装
 
 ```bash
-deno add jsr:@elelcode/lit-router
+npm install @elelcode/lit-router lit
 ```
 
 使用：
@@ -96,7 +96,7 @@ document.querySelector("router-view")!.router = router;
 在项目根目录运行：
 
 ```bash
-deno serve --port 8000 index.html
+npm run dev
 ```
 
 关键文件：
@@ -190,7 +190,48 @@ setRouteContext(context: RouteContext): void
 `beforeLeave` 的返回语义与 `guard` 一致，但它只会作用在“即将被卸载的那段分支”
 上。公共父级不会在兄弟子路由切换时重复触发。
 
-## 懒加载
+### 组件级离开守卫 (`beforeRouteLeave`)
+
+在 `<router-view>` 中挂载的页面或表单组件可以直接在其类上实现 `beforeRouteLeave` 方法，拦截用户意外切页造成的未保存内容丢失：
+
+```ts
+import { LitElement, html } from "lit";
+import { customElement } from "lit/decorators.js";
+
+@customElement("article-editor")
+class ArticleEditor extends LitElement {
+  hasUnsavedChanges = true;
+
+  beforeRouteLeave(detail) {
+    if (this.hasUnsavedChanges) {
+      return confirm("当前有未保存的内容，确认离开吗？");
+    }
+    return true;
+  }
+}
+```
+
+切页离开时，`<router-view>` 会自动检查当前即将卸载的各级组件。返回 `false` 或 Promise 决议为 `false` 会阻止导航并自动回退浏览器地址栏。
+
+### 动态离开守卫 (`router.registerLeaveGuard`)
+
+在任意业务逻辑中动态注册离开守卫（例如全局上传任务中禁止切页）：
+
+```ts
+const unregister = router.registerLeaveGuard((detail) => {
+  if (isUploading) {
+    return false; // 拦截离开
+  }
+  return true;
+});
+
+// 上传完成后注销：
+unregister();
+```
+
+## 懒加载与数据预取 (Loader)
+
+### 代码分割 (`load`)
 
 推荐把非首页路由统一写成：
 
@@ -204,12 +245,35 @@ setRouteContext(context: RouteContext): void
 
 同一路由只会在首次进入时触发一次 `load()`。
 
+### 并发数据预取 (`loader`)
+
+在路由进入时并发拉取数据，消除前端请求瀑布流（Waterfalls）：
+
+```ts
+{
+  path: "users/:id",
+  name: "user-detail",
+  component: "user-detail-page",
+  loader: async ({ params, signal }) => {
+    const res = await fetch(`/api/users/${params.id}`, { signal });
+    return res.json();
+  },
+}
+```
+
+`loader` 函数接收 `{ router, params, query, hash, url, signal }`，与组件异步加载并发执行。获取到的数据会自动传递至：
+
+- `router.current.data`
+- `router.getRouteData()`
+- `routeContext.data`
+- `element.data = context.data`（若组件类声明了 `data` 属性）
+
 如果你需要给全局进度条或壳层 loading 做联动，可以监听：
 
 - `route-loading-start`
 - `route-loading-end`
 
-它们的 `event.detail.pending` 表示当前还有多少个路由加载过程在进行中。
+它们的 `event.detail.pending` 表示当前还有多少个路由加载过程（包含组件加载与数据 loader）在进行中。
 
 ## 导航方式
 
@@ -255,6 +319,59 @@ const href = router.link({
 <a href="/settings" data-router-replace>Back To Settings</a>
 ```
 
+### 激活态感知 (`router.isActive`)
+
+检测某个路径、前缀或具名路由当前是否激活：
+
+```ts
+// 路径前缀匹配
+router.isActive("/users"); // 当位于 /users 或 /users/42 时返回 true
+
+// 精确全路径匹配
+router.isActive("/users", { exact: true });
+
+// 具名路由匹配
+router.isActive("user-detail");
+
+// 携带参数与查询参数匹配
+router.isActive({
+  name: "user-detail",
+  params: { id: "42" },
+  query: { tab: "activity" },
+});
+```
+
+### 声明式模板指令 (`routerLink` 与 `activeRoute`)
+
+在 Lit 模板中直接声明式书写导航链接与激活状态指示：
+
+```ts
+import { html, LitElement } from "lit";
+import { activeRoute, routerLink } from "@elelcode/lit-router";
+
+html`
+  <!-- 在 <router-view> 树内自动从 DOM 上下文解析 router 实例 -->
+  <a ${routerLink("/dashboard", { activeClass: "nav-active", exact: true })}>
+    控制台
+  </a>
+
+  <!-- 具名路由并传递参数 -->
+  <a ${routerLink({ name: "user-detail", params: { id: "42" } })}> 用户详情 </a>
+
+  <!-- 为列表项或任意元素附加激活状态 -->
+  <li ${activeRoute("/dashboard", { activeClass: "active-tab" })}>
+    <a href="/dashboard">控制台</a>
+  </li>
+`;
+```
+
+`routerLink` 自动负责：
+
+- 生成正确的 `href` 地址（包含 `basePath`）
+- 拦截同源点击（自动放行新标签页修饰键、`target="_blank"`、`download` 及 `data-router-ignore`）
+- 目标命中时自动添加指定 `activeClass`
+- 自动设置 `aria-current="page"`，保障 Web 可访问性（a11y）
+
 ## 动态更新 Route Tree
 
 如果应用启动后需要按登录态、权限、租户能力或插件模块动态更新路由树，通常更
@@ -265,15 +382,18 @@ router.insertRoutes([
   { path: "admin", name: "admin", component: "admin-page" },
 ]);
 
-router.insertRoutes([
+router.insertRoutes(
+  [
+    {
+      id: "settings-security-plugin",
+      path: "security",
+      component: "settings-security-page",
+    },
+  ],
   {
-    id: "settings-security-plugin",
-    path: "security",
-    component: "settings-security-page",
+    parentId: "settings-shell",
   },
-], {
-  parentId: "settings-shell",
-});
+);
 
 router.removeRoute({ id: "settings-security-plugin" });
 ```
@@ -289,9 +409,7 @@ router.batchRouteUpdates(() => {
   router.insertRoutes([
     { path: "alpha", name: "alpha", component: "alpha-page" },
   ]);
-  router.insertRoutes([
-    { path: "beta", name: "beta", component: "beta-page" },
-  ]);
+  router.insertRoutes([{ path: "beta", name: "beta", component: "beta-page" }]);
 });
 ```
 
@@ -372,6 +490,54 @@ router.configure({ routes, basePath, beforeRoute });
 <h1 data-route-focus tabindex="-1">Profile</h1>
 ```
 
+## W3C Context 协议支持
+
+`<router-view>` 原生充当符合 W3C Context 协议的 Context Provider。它会自动响应以下上下文请求：
+
+- `routerContext`：当前激活的 `Router` 实例。
+- `routeContext`：当前激活的 `RouteContext`（包含路径参数、匹配分支以及预取数据）。
+
+### 配合 `@lit/context` 使用
+
+```ts
+import { LitElement, html } from "lit";
+import { consume } from "@lit/context";
+import {
+  type RouteContext,
+  type Router,
+  routeContext,
+  routerContext,
+} from "@elelcode/lit-router";
+
+class BreadcrumbBar extends LitElement {
+  @consume({ context: routeContext, subscribe: true })
+  route?: RouteContext;
+
+  render() {
+    return html`
+      <ul>
+        ${this.route?.branch.map(
+          (step) => html`<li>${step.name ?? step.path}</li>`,
+        )}
+      </ul>
+    `;
+  }
+}
+```
+
+## 与 `lit-ui-router` 深度对比
+
+| 维度             | `lit-ui-router`                                              | `@elelcode/lit-router` (本项目)                            |
+| :--------------- | :----------------------------------------------------------- | :--------------------------------------------------------- |
+| **底层核心依赖** | 强依赖 `@uirouter/core` 重型状态机（AngularJS 时代历史包袱） | **Navigation API 原生首选** + 浏览器原生标准               |
+| **视图组织**     | 自定义 `<ui-view>` 组件树                                    | **原生 Web Components `<slot>`** 并行多插槽                |
+| **过渡动画**     | 模拟过渡类                                                   | **原生 `View Transitions API`** 支持方向感知               |
+| **模板指令**     | `uiSref`                                                     | **`routerLink` 与 `activeRoute`**，自动管理 `aria-current` |
+| **数据加载**     | 状态机 `resolve`                                             | **并发 `loader`**，支持 AbortSignal 取消与消除瀑布流       |
+| **离开守卫**     | `uiCanExit`                                                  | **组件 `beforeRouteLeave`** + `registerLeaveGuard`         |
+| **上下文协议**   | 需适配 `@lit/context`                                        | **标准 W3C Context Protocol**，零外部依赖互通              |
+| **包体积**       | **> 300KB**（Gzip 约 90KB+）                                 | **~60KB**（**Gzip 约 15KB**，体积减少约 6 倍）             |
+
 ## 事件
 
 建议在应用壳层统一监听：
@@ -419,7 +585,7 @@ router.addEventListener("route-error", (event) => {
 - 同一个 document 里只支持一个已启动的 `Router`
 - 路由要求浏览器提供 `Navigation API`，没有 History API 或 hash 路由 fallback
 - `router-view` 内部有滚动缓存，但已经做了有界限制，不会无限增长
-- 当前发布链路是 Deno-first + JSR-first
+- 发布至 npm 为标准 ESM 模块并自带 TypeScript 类型声明文件 (.d.ts)
 
 ## 开发建议
 

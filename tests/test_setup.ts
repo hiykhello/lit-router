@@ -1,4 +1,22 @@
 import { Window } from "happy-dom";
+import { expect } from "vitest";
+
+export function assert(
+  condition: unknown,
+  message?: string,
+): asserts condition {
+  if (!condition) {
+    throw new Error(message ?? "Assertion failed");
+  }
+}
+
+export function assertEquals<T>(
+  actual: unknown,
+  expected: T,
+  message?: string,
+): void {
+  expect(actual).toEqual(expected);
+}
 
 const NativeEvent = globalThis.Event;
 const NativeEventTarget = globalThis.EventTarget;
@@ -74,9 +92,9 @@ function historyStateWithKey(
 ): Record<string, unknown> {
   return state && typeof state === "object" && !Array.isArray(state)
     ? {
-      ...(state as Record<string, unknown>),
-      [ROUTER_NAVIGATION_ENTRY_KEY]: key,
-    }
+        ...(state as Record<string, unknown>),
+        [ROUTER_NAVIGATION_ENTRY_KEY]: key,
+      }
     : { [ROUTER_NAVIGATION_ENTRY_KEY]: key };
 }
 
@@ -105,12 +123,10 @@ function createNavigateEvent(
     navigationType: { configurable: true, value: navigationType },
     intercept: {
       configurable: true,
-      value: (
-        options: {
-          handler: () => Promise<void> | void;
-          scroll?: "manual" | "after-transition";
-        },
-      ) => {
+      value: (options: {
+        handler: () => Promise<void> | void;
+        scroll?: "manual" | "after-transition";
+      }) => {
         handler = options.handler;
       },
     },
@@ -126,13 +142,15 @@ function createNavigateEvent(
 
 class TestNavigationMock extends NativeEventTarget {
   currentEntry: TestNavigationEntry;
+  private readonly dom: Window;
   private entries: TestNavigationEntry[];
   private index = 0;
   private readonly originalPushState: History["pushState"];
   private readonly originalReplaceState: History["replaceState"];
 
-  constructor(private readonly dom: Window) {
+  constructor(dom: Window) {
     super();
+    this.dom = dom;
     const key = createNavigationKey();
     this.currentEntry = { key, url: dom.location.href };
     this.entries = [this.currentEntry];
@@ -146,11 +164,7 @@ class TestNavigationMock extends NativeEventTarget {
     this.currentEntry = { key, url };
     this.entries = [this.currentEntry];
     this.index = 0;
-    this.originalReplaceState(
-      historyStateWithKey(null, key),
-      "",
-      url,
-    );
+    this.originalReplaceState(historyStateWithKey(null, key), "", url);
   }
 
   navigate(
@@ -159,9 +173,8 @@ class TestNavigationMock extends NativeEventTarget {
   ): void {
     const href = new URL(url, this.dom.location.href).href;
     const mode = options?.history === "replace" ? "replace" : "push";
-    const key = mode === "replace"
-      ? this.currentEntry.key
-      : createNavigationKey();
+    const key =
+      mode === "replace" ? this.currentEntry.key : createNavigationKey();
     const { event, runHandler } = createNavigateEvent(href, key, mode);
 
     this.dispatchEvent(event);
@@ -202,9 +215,10 @@ class TestNavigationMock extends NativeEventTarget {
     url: string | URL | null | undefined,
     mode: TestNavigationHistoryMode,
   ): void {
-    const href = url === null || url === undefined
-      ? this.dom.location.href
-      : new URL(String(url), this.dom.location.href).href;
+    const href =
+      url === null || url === undefined
+        ? this.dom.location.href
+        : new URL(String(url), this.dom.location.href).href;
     const key = keyFromHistoryState(state) ?? createNavigationKey();
     this.commitEntry({ key, url: href }, mode);
   }
@@ -242,22 +256,14 @@ class TestNavigationMock extends NativeEventTarget {
     Object.defineProperties(this.dom.history, {
       pushState: {
         configurable: true,
-        value: (
-          state: unknown,
-          title: string,
-          url?: string | URL | null,
-        ) => {
+        value: (state: unknown, title: string, url?: string | URL | null) => {
           this.originalPushState(state, title, url);
           this.syncHistoryMutation(state, url, "push");
         },
       },
       replaceState: {
         configurable: true,
-        value: (
-          state: unknown,
-          title: string,
-          url?: string | URL | null,
-        ) => {
+        value: (state: unknown, title: string, url?: string | URL | null) => {
           this.originalReplaceState(state, title, url);
           this.syncHistoryMutation(state, url, "replace");
         },
@@ -395,3 +401,5 @@ export async function settle(
   }
   await Promise.resolve();
 }
+
+ensureDom();

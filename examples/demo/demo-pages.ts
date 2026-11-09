@@ -69,8 +69,8 @@ export class DemoOverviewPage extends RouteAwareElement {
       <section class="panel">
         <h2>TS 声明式路由</h2>
         <p>
-          路由定义完全在 TypeScript 里声明，router 根据路由树实例化 Web Components，
-          不再依赖 HTML 上的 ${"`data-route`"}。
+          路由定义完全在 TypeScript 里声明，router 根据路由树实例化 Web
+          Components， 不再依赖 HTML 上的 ${"`data-route`"}。
         </p>
         <pre><code>${DEMO_ROUTE_SNIPPET}</code></pre>
       </section>
@@ -92,7 +92,9 @@ export class DemoOverviewPage extends RouteAwareElement {
 
     h2 {
       margin: 0 0 12px;
-      font: 700 clamp(1.5rem, 3vw, 2rem) / 1 "Iowan Old Style", serif;
+      font:
+        700 clamp(1.5rem, 3vw, 2rem) / 1 "Iowan Old Style",
+        serif;
       color: #102033;
     }
 
@@ -109,7 +111,10 @@ export class DemoOverviewPage extends RouteAwareElement {
       border-radius: 20px;
       background: rgba(16, 32, 51, 0.06);
       color: #102033;
-      font: 0.9rem/1.5 "SFMono-Regular", "Cascadia Code", monospace;
+      font:
+        0.9rem/1.5 "SFMono-Regular",
+        "Cascadia Code",
+        monospace;
     }
   `;
 }
@@ -146,7 +151,9 @@ export class DemoInboxLayout extends RouteAwareElement {
 
     h2 {
       margin: 0 0 10px;
-      font: 700 clamp(1.5rem, 3vw, 2rem) / 1 "Iowan Old Style", serif;
+      font:
+        700 clamp(1.5rem, 3vw, 2rem) / 1 "Iowan Old Style",
+        serif;
       color: #102033;
     }
 
@@ -169,7 +176,10 @@ export class DemoInboxLayout extends RouteAwareElement {
       color: #102033;
       text-decoration: none;
       background: rgba(194, 77, 44, 0.12);
-      font: 600 0.95rem/1 "Avenir Next", "Segoe UI", sans-serif;
+      font:
+        600 0.95rem/1 "Avenir Next",
+        "Segoe UI",
+        sans-serif;
     }
 
     ::slotted(*) {
@@ -241,8 +251,10 @@ export class DemoSettingsHome extends RouteAwareElement {
   render() {
     return html`
       <section class="subpanel">
-        <p>settings index 路由已命中，当前 local path 是 ${this.detail
-          ?.localPathname}。</p>
+        <p>
+          settings index 路由已命中，当前 local path 是
+          ${this.detail?.localPathname}。
+        </p>
       </section>
     `;
   }
@@ -317,7 +329,9 @@ export class DemoNotFoundPage extends RouteAwareElement {
 
     h2 {
       margin: 0 0 10px;
-      font: 700 clamp(1.5rem, 3vw, 2rem) / 1 "Iowan Old Style", serif;
+      font:
+        700 clamp(1.5rem, 3vw, 2rem) / 1 "Iowan Old Style",
+        serif;
       color: #102033;
     }
 

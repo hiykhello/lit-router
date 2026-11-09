@@ -19,31 +19,46 @@ Docs:
 
 ## Highlights
 
-- Route trees are declared in TypeScript, not scattered across HTML markers.
-- Route trees can be updated at runtime by inserting, deleting, or replacing
-  branches.
-- Nested routes are rendered through native named slots.
-- Guard redirects, leave guards, lazy loading, and route commits are race-safe.
-- RouterView exposes direction-aware commits, fallback slots, and loading
-  lifecycle events without adding wrapper components.
-- Navigation is driven by the Navigation API, with per-entry keys used for
-  direction and scroll restoration.
-- Same-origin link interception is limited to the configured `basePath`.
-- Route components receive an explicit `RouteContext` contract.
+- **Modern Web Standards-Native**: built on native `Navigation API`, `URLPattern`, `View Transitions API`, and native `<slot>`s.
+- **Ultra-lightweight & Dependency-Free**: ~15KB gzip output bundle with 0 external dependencies (peer dependency on `lit ^3.0.0` only).
+- **Declarative Lit Directives**: `${routerLink()}` and `${activeRoute()}` for frictionless templates with automatic `aria-current="page"` and active class management.
+- **Route Data Loaders**: async data prefetching (`loader`) that runs concurrently during navigation, eliminating waterfalls and passing data to `RouteContext.data` and `element.data`.
+- **Component & Dynamic Leave Guards**: component-level `beforeRouteLeave` hooks and `router.registerLeaveGuard()` to safeguard unsaved user input.
+- **W3C Context Protocol**: wire-compatible with `@lit/context` and native DOM events (`routerContext`, `routeContext`, `requestContext`).
+- **Comprehensive Route Matching**: `router.isActive()` supports paths, prefixes, named routes, selectors, params, query parameters, and hashes.
+- **Dynamic Route Trees**: insert, delete, or replace branches at runtime with atomic `batchRouteUpdates()` and rollback on failure.
+- **Zero-Wrapper Projection**: no wrapper container components required; `<router-view>` projects directly into native `<slot>` elements.
+- **Race-Safe**: abort signals cancel stale async loads, guards, and transition promises immediately when newer navigations occur.
+
+## Architecture Comparison: @elelcode/lit-router vs. lit-ui-router
+
+| Feature / Dimension           | `lit-ui-router` (UI-Router for Lit)                           | `@elelcode/lit-router` (This Package)                                 |
+| :---------------------------- | :------------------------------------------------------------ | :-------------------------------------------------------------------- |
+| **Foundation & Architecture** | Heavy `@uirouter/core` state machine (AngularJS-era legacy)   | **Navigation API-First** (Native modern web platform)                 |
+| **Route Matching**            | Custom regex parser and state path engine                     | **Native `URLPattern`** (Browser-native, standard-compliant)          |
+| **Page Transitions**          | Manual DOM manipulation or simulated CSS classes              | **Native `View Transitions API`** with direction awareness            |
+| **View Organization**         | Custom `<ui-view>` component tree with complex context wiring | **Native `<slot>` elements** with multi-outlet parallel projection    |
+| **Component Hierarchy**       | Requires top-level `<ui-router .uiRouter=${router}>` wrapper  | **Zero Wrapper Container**; clean standalone `<router-view>`          |
+| **Declarative Directives**    | `uiSref` / `srefHref` directives                              | **`routerLink` & `activeRoute`** with automatic a11y (`aria-current`) |
+| **Data Prefetching**          | State-machine `resolve`                                       | **Concurrent `loader`** with AbortSignal & waterfall elimination      |
+| **Leave Guards**              | State-machine `uiCanExit`                                     | **Component `beforeRouteLeave`** + `registerLeaveGuard()`             |
+| **Context Protocol**          | Proprietary `@lit/context` wiring                             | **Standard W3C Context Protocol** (0 extra dependencies)              |
+| **Bundle Footprint**          | **> 300KB** unminified (> 90KB gzip with `@uirouter/core`)    | **~60KB** bundle (**~15KB gzip**), ~6x smaller                        |
 
 ## Install
 
 ```bash
-deno add jsr:@elelcode/lit-router
+npm install @elelcode/lit-router lit
 ```
 
-Local development uses the Deno toolchain:
+Local development commands:
 
 ```bash
-deno task fmt:check
-deno task lint
-deno task check
-deno task test
+npm install
+npm test
+npm run typecheck
+npm run build
+npm run dev
 ```
 
 ## Docs
@@ -143,11 +158,12 @@ router.insertRoutes([
   { path: "admin", name: "admin", component: "admin-page" },
 ]);
 
-router.insertRoutes([
-  { id: "settings-audit-plugin", path: "audit", component: "audit-page" },
-], {
-  parentId: "settings-shell",
-});
+router.insertRoutes(
+  [{ id: "settings-audit-plugin", path: "audit", component: "audit-page" }],
+  {
+    parentId: "settings-shell",
+  },
+);
 
 router.removeRoute({ id: "settings-audit-plugin" });
 ```
@@ -165,9 +181,7 @@ router.batchRouteUpdates(() => {
   router.insertRoutes([
     { path: "alpha", name: "alpha", component: "alpha-page" },
   ]);
-  router.insertRoutes([
-    { path: "beta", name: "beta", component: "beta-page" },
-  ]);
+  router.insertRoutes([{ path: "beta", name: "beta", component: "beta-page" }]);
 });
 ```
 
@@ -204,9 +218,7 @@ class UserPage extends LitElement {
   accessor routeContext: RouteContext | undefined;
 
   render() {
-    return html`
-      <h1>User ${this.routeContext?.params.id}</h1>
-    `;
+    return html` <h1>User ${this.routeContext?.params.id}</h1> `;
   }
 }
 ```
@@ -288,6 +300,173 @@ Anchor navigation:
 
 Leave guards run only for the suffix being unloaded. Shared parent routes are
 not re-checked when sibling child routes switch.
+
+## Declarative Lit Directives
+
+Use `routerLink` and `activeRoute` directly inside your Lit HTML templates for clean, accessible navigation:
+
+```ts
+import { html, LitElement } from "lit";
+import { customElement } from "lit/decorators.js";
+import { activeRoute, routerLink } from "@elelcode/lit-router";
+
+@customElement("app-nav")
+class AppNav extends LitElement {
+  render() {
+    return html`
+      <nav>
+        <!-- routerLink automatically wires href, clicks, active class, and aria-current -->
+        <a ${routerLink("/dashboard", { activeClass: "active", exact: true })}>
+          Dashboard
+        </a>
+        <a ${routerLink("/users")}>Users</a>
+        <a ${routerLink({ name: "settings", query: { tab: "profile" } })}>
+          Settings
+        </a>
+
+        <!-- activeRoute turns any element (e.g., <li>, <button>) into an active-state indicator -->
+        <li ${activeRoute("/analytics", { activeClass: "tab-selected" })}>
+          <a href="/analytics">Analytics</a>
+        </li>
+      </nav>
+    `;
+  }
+}
+```
+
+When used inside `<router-view>`, `routerLink` automatically resolves the `Router` instance from DOM context.
+
+## Route Data Loaders (Prefetching)
+
+Define a `loader` on your `RouteDefinition` to fetch data concurrently during navigation:
+
+```ts
+const routes = [
+  {
+    path: "users/:id",
+    name: "user-detail",
+    component: "user-profile",
+    loader: async ({ params, signal }) => {
+      const response = await fetch(`/api/users/${params.id}`, { signal });
+      return response.json();
+    },
+  },
+];
+```
+
+The preloaded data is passed to:
+
+1. `router.current.data` and `router.getRouteData()`
+2. `routeContext.data`
+3. `element.data = context.data` (if the element defines a `data` property)
+
+While the loader is running, `<router-view>` and `Router` dispatch `route-loading-start` and `route-loading-end` events for global progress indicators.
+
+## Component & Dynamic Leave Guards
+
+### Component-Level `beforeRouteLeave`
+
+Prevent users from accidentally navigating away from unsaved forms by declaring a `beforeRouteLeave` method directly in the component:
+
+```ts
+@customElement("edit-post-page")
+class EditPostPage extends LitElement {
+  hasUnsavedChanges = true;
+
+  beforeRouteLeave(detail) {
+    if (this.hasUnsavedChanges) {
+      return confirm(
+        "You have unsaved changes. Are you sure you want to leave?",
+      );
+    }
+    return true;
+  }
+}
+```
+
+### Dynamic `router.registerLeaveGuard`
+
+Register dynamic leave guards programmatically:
+
+```ts
+const unregister = router.registerLeaveGuard((detail) => {
+  if (isUploading) {
+    return confirm("Upload in progress. Cancel and leave?");
+  }
+  return true;
+});
+
+// Later, when upload completes:
+unregister();
+```
+
+## Active Route Checking (`router.isActive`)
+
+Check whether a path, prefix, or named route is active:
+
+```ts
+// Path prefix match
+router.isActive("/users"); // true for /users and /users/42
+
+// Exact path match
+router.isActive("/users", { exact: true });
+
+// Named route
+router.isActive("user-detail");
+
+// Target with params, query, or hash
+router.isActive({
+  name: "user-detail",
+  params: { id: "42" },
+  query: { tab: "posts" },
+  hash: "comments",
+});
+```
+
+## W3C Context Protocol Integration
+
+`@elelcode/lit-router` natively implements the W3C Context Protocol with zero extra dependencies:
+
+```ts
+import { LitElement, html } from "lit";
+import { consume } from "@lit/context";
+import {
+  type RouteContext,
+  type Router,
+  routeContext,
+  routerContext,
+} from "@elelcode/lit-router";
+
+class UserStatusWidget extends LitElement {
+  @consume({ context: routerContext, subscribe: true })
+  accessor router: Router | undefined;
+
+  @consume({ context: routeContext, subscribe: true })
+  accessor route: RouteContext | undefined;
+
+  render() {
+    return html`
+      <p>Path: ${this.route?.detail.localPathname}</p>
+      <p>User: ${this.route?.data?.name}</p>
+    `;
+  }
+}
+```
+
+Or consume imperatively without `@lit/context`:
+
+```ts
+import { requestContext, routerContext } from "@elelcode/lit-router";
+
+requestContext(
+  this,
+  routerContext,
+  (router) => {
+    console.log("Found router:", router);
+  },
+  true,
+);
+```
 
 ## RouterView
 
@@ -385,7 +564,7 @@ A full interactive demo with navigation bar, status panel, guarded lab route,
 and dynamic module loading. Run it with:
 
 ```bash
-deno serve --port 8000 index.html
+npm run dev
 ```
 
 Key files:
@@ -396,11 +575,8 @@ Key files:
 
 ## Production Notes
 
-- This package is validated and published with the Deno toolchain. JSR publishes
-  the TypeScript source directly.
-- The source imports `lit` through Deno's native `npm:` support and tracks
-  `lit@^3.3.3`. That is a Deno runtime feature, not an `npm install` /
-  `npm publish` workflow.
+- This package is published directly to npm as standard ESM with bundled TypeScript declaration files.
+- The peer dependency specifies `lit@^3.0.0`.
 - The router intentionally depends on the native `URLPattern` API. Use a modern
   browser baseline or load a `URLPattern` polyfill before `router.start()`.
 - The router requires the `Navigation API` for same-document navigations and

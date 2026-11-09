@@ -4,55 +4,61 @@
  * Requires Chromium. Puppeteer downloads it automatically on first run.
  *
  * Provide dist-e2e/router.bundle.js, then run:
- * deno test -A tests/e2e/e2e_test.ts
+ * npm run test:e2e
  */
 
-import { assertEquals } from "@std/assert";
+import http from "node:http";
+import fs from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+import { test, expect } from "vitest";
 import puppeteer, { type Page } from "puppeteer";
 
 // ---------- server ----------
 
-function startServer(root: string) {
-  const controller = new AbortController();
-  const server = Deno.serve(
-    { port: 0, signal: controller.signal },
-    async (request: Request) => {
-      const url = new URL(request.url);
-      const pathname = url.pathname === "/" ? "/index.html" : url.pathname;
-      const filePath = `${root}${pathname}`;
+async function startServer(
+  root: string,
+): Promise<{ shutdown: () => Promise<void>; port: number }> {
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const pathname = url.pathname === "/" ? "/index.html" : url.pathname;
+    const filePath = path.join(root, pathname);
 
-      try {
-        const text = await Deno.readTextFile(filePath);
+    try {
+      const text = await fs.readFile(filePath, "utf-8");
+      const ext = pathname.split(".").pop() ?? "";
+      const contentType: Record<string, string> = {
+        js: "application/javascript",
+        html: "text/html",
+        css: "text/css",
+      };
 
-        const ext = pathname.split(".").pop() ?? "";
-        const contentType = {
-          js: "application/javascript",
-          html: "text/html",
-          css: "text/css",
-        }[ext] ?? "text/plain";
+      res.writeHead(200, {
+        "content-type": contentType[ext] ?? "text/plain",
+      });
+      res.end(text);
+    } catch {
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end(`Not found: ${url.pathname}`);
+    }
+  });
 
-        return new Response(text, {
-          headers: { "content-type": contentType },
-        });
-      } catch {
-        return new Response(`Not found: ${url.pathname}`, { status: 404 });
-      }
-    },
-  );
+  await new Promise<void>((resolve) => {
+    server.listen(0, resolve);
+  });
 
+  const address = server.address() as { port: number };
   return {
-    shutdown: async () => {
-      controller.abort();
-      await server.finished;
-    },
-    port: server.addr.port,
+    shutdown: () =>
+      new Promise<void>((resolve) => server.close(() => resolve())),
+    port: address.port,
   };
 }
 
 // ---------- browser ----------
 
 async function prepareBrowser(port: number) {
-  const execPath = Deno.env.get("PUPPETEER_EXECUTABLE_PATH") || undefined;
+  const execPath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
   const browser = await puppeteer.launch({
     headless: true,
     ...(execPath ? { executablePath: execPath } : {}),
@@ -77,60 +83,56 @@ async function prepareBrowser(port: number) {
 
 async function waitForRouterReady(page: Page, diagnostics: string[] = []) {
   try {
-    await page.waitForFunction(() => {
-      const view = document.querySelector("router-view") as
-        | (HTMLElement & { router?: unknown })
-        | null;
-      return Boolean(customElements.get("router-view") && view?.router);
-    }, { timeout: 5_000 });
+    await page.waitForFunction(
+      () => {
+        const view = document.querySelector("router-view") as
+          (HTMLElement & { router?: unknown }) | null;
+        return Boolean(customElements.get("router-view") && view?.router);
+      },
+      { timeout: 5_000 },
+    );
   } catch (error) {
-    const state = await page.evaluate(() => {
-      const scripts = Array.from(document.scripts).map((script) =>
-        script.src || script.textContent?.slice(0, 120) || ""
-      );
-      return {
-        hasRouterView: Boolean(document.querySelector("router-view")),
-        routerViewDefined: Boolean(customElements.get("router-view")),
-        body: document.body.innerHTML.slice(0, 400),
-        scripts,
-      };
-    }).catch((stateError) => ({
-      evaluationError: stateError instanceof Error
-        ? stateError.message
-        : String(stateError),
-    }));
+    const state = await page
+      .evaluate(() => {
+        const scripts = Array.from(document.scripts).map(
+          (script) => script.src || script.textContent?.slice(0, 120) || "",
+        );
+        return {
+          hasRouterView: Boolean(document.querySelector("router-view")),
+          routerViewDefined: Boolean(customElements.get("router-view")),
+          body: document.body.innerHTML.slice(0, 400),
+          scripts,
+        };
+      })
+      .catch((stateError) => ({
+        evaluationError:
+          stateError instanceof Error ? stateError.message : String(stateError),
+      }));
 
     throw new Error(
-      `router-view did not become ready.\nState: ${
-        JSON.stringify(state)
-      }\nDiagnostics: ${diagnostics.join(" | ")}\nCause: ${
+      `router-view did not become ready.\nState: ${JSON.stringify(
+        state,
+      )}\nDiagnostics: ${diagnostics.join(" | ")}\nCause: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
   }
 }
 
-async function waitForPath(
-  page: Page,
-  path: string,
-) {
+async function waitForPath(page: Page, targetPath: string) {
   await page.waitForFunction(
     (p: string) => globalThis.location.pathname === p,
     { timeout: 5_000 },
-    path,
+    targetPath,
   );
 }
 
-async function waitForText(
-  page: Page,
-  sel: string,
-  expected: string,
-) {
+async function waitForText(page: Page, sel: string, expected: string) {
   await page.waitForFunction(
     (s: string, value: string) => {
       const view = document.querySelector("router-view");
-      const element = view?.shadowRoot?.querySelector(s) ??
-        document.querySelector(s);
+      const element =
+        view?.shadowRoot?.querySelector(s) ?? document.querySelector(s);
       return element?.textContent === value;
     },
     { timeout: 5_000 },
@@ -139,22 +141,17 @@ async function waitForText(
   );
 }
 
-async function nav(
-  page: Page,
-  path: string,
-) {
+async function nav(page: Page, targetPath: string) {
   await waitForRouterReady(page);
   await page.evaluate((p: string) => {
-    (document.querySelector("router-view") as { push?: (p: string) => void })
-      ?.push?.(p);
-  }, path);
-  await waitForPath(page, path);
+    (
+      document.querySelector("router-view") as { push?: (p: string) => void }
+    )?.push?.(p);
+  }, targetPath);
+  await waitForPath(page, targetPath);
 }
 
-async function back(
-  page: Page,
-  expectedPath: string,
-) {
+async function back(page: Page, expectedPath: string) {
   await page.evaluate(() => globalThis.history.back());
   await waitForPath(page, expectedPath);
 }
@@ -163,19 +160,13 @@ function pathname(page: Page) {
   return page.evaluate(() => globalThis.location.pathname);
 }
 
-function text(
-  page: Page,
-  sel: string,
-) {
-  return page.evaluate(
-    (s: string) => {
-      const view = document.querySelector("router-view");
-      const element = view?.shadowRoot?.querySelector(s) ??
-        document.querySelector(s);
-      return element?.textContent ?? "";
-    },
-    sel,
-  );
+function text(page: Page, sel: string) {
+  return page.evaluate((s: string) => {
+    const view = document.querySelector("router-view");
+    const element =
+      view?.shadowRoot?.querySelector(s) ?? document.querySelector(s);
+    return element?.textContent ?? "";
+  }, sel);
 }
 
 // ---------- pages ----------
@@ -199,20 +190,18 @@ function indexHtml(routerScript: string, componentsScript: string) {
 
 // ---------- tests ----------
 
-Deno.test({
-  name: "E2E: push navigates and renders components",
-  async fn() {
-    const tmp = await Deno.makeTempDir();
-    try {
-      await Deno.copyFile(
-        "dist-e2e/router.bundle.js",
-        `${tmp}/router.bundle.js`,
-      );
+test("E2E: push navigates and renders components", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "lit-router-e2e-"));
+  try {
+    await fs.copyFile(
+      "dist-e2e/router.bundle.js",
+      path.join(tmp, "router.bundle.js"),
+    );
 
-      await Deno.writeTextFile(
-        `${tmp}/index.html`,
-        indexHtml(
-          `
+    await fs.writeFile(
+      path.join(tmp, "index.html"),
+      indexHtml(
+        `
         import { Router } from "/router.bundle.js";
 
         customElements.whenDefined("router-view").then(() => {
@@ -232,7 +221,7 @@ Deno.test({
           document.querySelector("router-view").router = router;
         });
       `,
-          `
+        `
         customElements.define("x-home", class extends HTMLElement {
           connectedCallback() { this.textContent = "Home"; }
         });
@@ -243,56 +232,52 @@ Deno.test({
           connectedCallback() { this.textContent = "Product"; }
         });
       `,
-        ),
-      );
+      ),
+      "utf-8",
+    );
 
-      const server = await startServer(tmp);
-      const { browser, page } = await prepareBrowser(server.port);
+    const server = await startServer(tmp);
+    const { browser, page } = await prepareBrowser(server.port);
 
-      // initial page
-      await waitForText(page, "x-home", "Home");
-      assertEquals(await pathname(page), "/");
-      assertEquals(await text(page, "x-home"), "Home");
+    // initial page
+    await waitForText(page, "x-home", "Home");
+    expect(await pathname(page)).toEqual("/");
+    expect(await text(page, "x-home")).toEqual("Home");
 
-      // push
-      await nav(page, "/products/42");
-      await waitForText(page, "x-product", "Product");
-      assertEquals(await pathname(page), "/products/42");
-      assertEquals(await text(page, "x-product"), "Product");
+    // push
+    await nav(page, "/products/42");
+    await waitForText(page, "x-product", "Product");
+    expect(await pathname(page)).toEqual("/products/42");
+    expect(await text(page, "x-product")).toEqual("Product");
 
-      // view transition name
-      const vtn = await page.evaluate(() => {
-        const view = document.querySelector("router-view") as HTMLElement & {
-          dataset: DOMStringMap;
-        };
-        return view?.dataset.viewTransitionName ?? "";
-      });
-      assertEquals(vtn, "product-stage");
+    // view transition name
+    const vtn = await page.evaluate(() => {
+      const view = document.querySelector("router-view") as HTMLElement & {
+        dataset: DOMStringMap;
+      };
+      return view?.dataset.viewTransitionName ?? "";
+    });
+    expect(vtn).toEqual("product-stage");
 
-      await browser.close();
-      await server.shutdown();
-    } finally {
-      await Deno.remove(tmp, { recursive: true });
-    }
-  },
-  sanitizeResources: false,
-  sanitizeOps: false,
-});
+    await browser.close();
+    await server.shutdown();
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+}, 30_000);
 
-Deno.test({
-  name: "E2E: back button returns to previous route",
-  async fn() {
-    const tmp = await Deno.makeTempDir();
-    try {
-      await Deno.copyFile(
-        "dist-e2e/router.bundle.js",
-        `${tmp}/router.bundle.js`,
-      );
+test("E2E: back button returns to previous route", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "lit-router-e2e-"));
+  try {
+    await fs.copyFile(
+      "dist-e2e/router.bundle.js",
+      path.join(tmp, "router.bundle.js"),
+    );
 
-      await Deno.writeTextFile(
-        `${tmp}/index.html`,
-        indexHtml(
-          `
+    await fs.writeFile(
+      path.join(tmp, "index.html"),
+      indexHtml(
+        `
         import { Router } from "/router.bundle.js";
         customElements.whenDefined("router-view").then(() => {
           const router = new Router({
@@ -305,7 +290,7 @@ Deno.test({
           document.querySelector("router-view").router = router;
         });
       `,
-          `
+        `
         customElements.define("x-home", class extends HTMLElement {
           connectedCallback() { this.textContent = "Home"; }
         });
@@ -316,46 +301,42 @@ Deno.test({
           connectedCallback() { this.textContent = "Contact"; }
         });
       `,
-        ),
-      );
+      ),
+      "utf-8",
+    );
 
-      const server = await startServer(tmp);
-      const { browser, page } = await prepareBrowser(server.port);
+    const server = await startServer(tmp);
+    const { browser, page } = await prepareBrowser(server.port);
 
-      await nav(page, "/about");
-      await nav(page, "/contact");
-      assertEquals(await pathname(page), "/contact");
+    await nav(page, "/about");
+    await nav(page, "/contact");
+    expect(await pathname(page)).toEqual("/contact");
 
-      await back(page, "/about");
-      assertEquals(await pathname(page), "/about");
+    await back(page, "/about");
+    expect(await pathname(page)).toEqual("/about");
 
-      await back(page, "/");
-      assertEquals(await pathname(page), "/");
+    await back(page, "/");
+    expect(await pathname(page)).toEqual("/");
 
-      await browser.close();
-      await server.shutdown();
-    } finally {
-      await Deno.remove(tmp, { recursive: true });
-    }
-  },
-  sanitizeResources: false,
-  sanitizeOps: false,
-});
+    await browser.close();
+    await server.shutdown();
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+}, 30_000);
 
-Deno.test({
-  name: "E2E: slot-based parallel outlet renders sidebar",
-  async fn() {
-    const tmp = await Deno.makeTempDir();
-    try {
-      await Deno.copyFile(
-        "dist-e2e/router.bundle.js",
-        `${tmp}/router.bundle.js`,
-      );
+test("E2E: slot-based parallel outlet renders sidebar", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "lit-router-e2e-"));
+  try {
+    await fs.copyFile(
+      "dist-e2e/router.bundle.js",
+      path.join(tmp, "router.bundle.js"),
+    );
 
-      await Deno.writeTextFile(
-        `${tmp}/index.html`,
-        indexHtml(
-          `
+    await fs.writeFile(
+      path.join(tmp, "index.html"),
+      indexHtml(
+        `
         import { Router } from "/router.bundle.js";
 
         customElements.define("x-layout", class extends HTMLElement {
@@ -388,58 +369,59 @@ Deno.test({
           document.querySelector("router-view").router = router;
         });
       `,
-          ``,
-        ),
-      );
+        ``,
+      ),
+      "utf-8",
+    );
 
-      const server = await startServer(tmp);
-      const { browser, page } = await prepareBrowser(server.port);
+    const server = await startServer(tmp);
+    const { browser, page } = await prepareBrowser(server.port);
 
-      await nav(page, "/settings/profile");
-      await page.waitForFunction(() => {
-        const layout = document.querySelector("router-view")?.shadowRoot
-          ?.querySelector("x-layout");
+    await nav(page, "/settings/profile");
+    await page.waitForFunction(
+      () => {
+        const layout = document
+          .querySelector("router-view")
+          ?.shadowRoot?.querySelector("x-layout");
         if (!layout?.shadowRoot) return false;
         const slot = layout.shadowRoot.querySelector(
           'slot[name="sidebar"]',
         ) as HTMLSlotElement | null;
         return slot?.assignedElements()?.[0]?.textContent === "SidebarContent";
-      }, { timeout: 5_000 });
-      const sidebarText = await page.evaluate(() => {
-        const layout = document.querySelector("router-view")?.shadowRoot
-          ?.querySelector("x-layout");
-        if (!layout?.shadowRoot) return "no-shadow";
-        const slot = layout.shadowRoot.querySelector(
-          'slot[name="sidebar"]',
-        ) as HTMLSlotElement;
-        return slot?.assignedElements()?.[0]?.textContent ?? "no-assigned";
-      });
-      assertEquals(sidebarText, "SidebarContent");
+      },
+      { timeout: 5_000 },
+    );
+    const sidebarText = await page.evaluate(() => {
+      const layout = document
+        .querySelector("router-view")
+        ?.shadowRoot?.querySelector("x-layout");
+      if (!layout?.shadowRoot) return "no-shadow";
+      const slot = layout.shadowRoot.querySelector(
+        'slot[name="sidebar"]',
+      ) as HTMLSlotElement;
+      return slot?.assignedElements()?.[0]?.textContent ?? "no-assigned";
+    });
+    expect(sidebarText).toEqual("SidebarContent");
 
-      await browser.close();
-      await server.shutdown();
-    } finally {
-      await Deno.remove(tmp, { recursive: true });
-    }
-  },
-  sanitizeResources: false,
-  sanitizeOps: false,
-});
+    await browser.close();
+    await server.shutdown();
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+}, 30_000);
 
-Deno.test({
-  name: "E2E: 404 fallback renders when URL does not match",
-  async fn() {
-    const tmp = await Deno.makeTempDir();
-    try {
-      await Deno.copyFile(
-        "dist-e2e/router.bundle.js",
-        `${tmp}/router.bundle.js`,
-      );
+test("E2E: 404 fallback renders when URL does not match", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "lit-router-e2e-"));
+  try {
+    await fs.copyFile(
+      "dist-e2e/router.bundle.js",
+      path.join(tmp, "router.bundle.js"),
+    );
 
-      await Deno.writeTextFile(
-        `${tmp}/index.html`,
-        indexHtml(
-          `
+    await fs.writeFile(
+      path.join(tmp, "index.html"),
+      indexHtml(
+        `
         import { Router } from "/router.bundle.js";
         customElements.whenDefined("router-view").then(() => {
           const router = new Router({
@@ -448,38 +430,42 @@ Deno.test({
           document.querySelector("router-view").router = router;
         });
       `,
-          `
+        `
         customElements.define("x-home", class extends HTMLElement {
           connectedCallback() { this.textContent = "Home"; }
         });
       `,
-        ),
-      );
+      ),
+      "utf-8",
+    );
 
-      const server = await startServer(tmp);
-      const { browser, page } = await prepareBrowser(server.port);
+    const server = await startServer(tmp);
+    const { browser, page } = await prepareBrowser(server.port);
 
-      await nav(page, "/missing-page");
-      await page.waitForFunction(() => {
+    await nav(page, "/missing-page");
+    await page.waitForFunction(
+      () => {
         const view = document.querySelector("router-view");
         return Boolean(
-          view?.shadowRoot?.querySelector('[data-fallback="404"]')
+          view?.shadowRoot
+            ?.querySelector('[data-fallback="404"]')
             ?.textContent?.includes("404"),
         );
-      }, { timeout: 5_000 });
-      const fallbackText = await page.evaluate(() => {
-        const view = document.querySelector("router-view");
-        return view?.shadowRoot?.querySelector('[data-fallback="404"]')
-          ?.textContent ?? "";
-      });
-      assertEquals(fallbackText.includes("404"), true);
+      },
+      { timeout: 5_000 },
+    );
+    const fallbackText = await page.evaluate(() => {
+      const view = document.querySelector("router-view");
+      return (
+        view?.shadowRoot?.querySelector('[data-fallback="404"]')?.textContent ??
+        ""
+      );
+    });
+    expect(fallbackText.includes("404")).toEqual(true);
 
-      await browser.close();
-      await server.shutdown();
-    } finally {
-      await Deno.remove(tmp, { recursive: true });
-    }
-  },
-  sanitizeResources: false,
-  sanitizeOps: false,
-});
+    await browser.close();
+    await server.shutdown();
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+}, 30_000);

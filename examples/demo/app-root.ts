@@ -106,11 +106,11 @@ export class AppRoot extends LitElement {
   });
 
   private readonly onRouteChange = (event: CustomEvent<RouterChangeDetail>) => {
-    this.currentPath =
-      `${event.detail.pathname}${event.detail.search}${event.detail.hash}`;
+    this.currentPath = `${event.detail.pathname}${event.detail.search}${event.detail.hash}`;
     this.currentLocalPath = event.detail.localPathname;
     this.currentBasePath = event.detail.basePath;
-    this.currentRoute = event.detail.branch.map((route) => route.path || "/")
+    this.currentRoute = event.detail.branch
+      .map((route) => route.path || "/")
       .join(" / ");
     this.currentParams = JSON.stringify(event.detail.params);
   };
@@ -130,9 +130,11 @@ export class AppRoot extends LitElement {
           <p class="eyebrow">Native Navigation Router</p>
           <h1>面向项目落地的 Web Components Router</h1>
           <p class="lede">
-            路由定义现在完全在 TypeScript 里声明，router 直接消费路由树并实例化对应的
-            Web Components。嵌套路由通过父组件内部的 ${'`<slot name="route-child">`'} 投影子页面，不再依赖
-            HTML 上的路由标记。
+            路由定义现在完全在 TypeScript 里声明，router
+            直接消费路由树并实例化对应的 Web
+            Components。嵌套路由通过父组件内部的
+            ${'`<slot name="route-child">`'} 投影子页面，不再依赖 HTML
+            上的路由标记。
           </p>
         </section>
 
@@ -210,10 +212,10 @@ export class AppRoot extends LitElement {
           transparent 32%
         ),
         radial-gradient(
-        circle at bottom right,
-        rgba(25, 93, 78, 0.12),
-        transparent 28%
-      ),
+          circle at bottom right,
+          rgba(25, 93, 78, 0.12),
+          transparent 28%
+        ),
         linear-gradient(180deg, #fbf6ef 0%, #f0e4d6 100%);
       font-family: var(--sans);
     }

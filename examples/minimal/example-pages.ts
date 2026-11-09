@@ -72,7 +72,10 @@ const panelStyles = css`
     color: #102033;
     cursor: pointer;
     text-decoration: none;
-    font: 600 0.94rem/1 "Avenir Next", "Segoe UI", sans-serif;
+    font:
+      600 0.94rem/1 "Avenir Next",
+      "Segoe UI",
+      sans-serif;
   }
 
   code,
@@ -118,8 +121,8 @@ export class ExampleHomePage extends ExampleRouteElement {
           <h2 data-route-focus tabindex="-1">Minimal Router Playground</h2>
           <p>
             这个示例不是“只有首页能跑”的 hello world，而是把核心能力压缩到一页：
-            懒加载、leave guard、动态插入 route tree、方向感知、fallback slot 和 route
-            context 都能直接点出来。
+            懒加载、leave guard、动态插入 route tree、方向感知、fallback slot 和
+            route context 都能直接点出来。
           </p>
         </div>
 
@@ -127,10 +130,16 @@ export class ExampleHomePage extends ExampleRouteElement {
           <h3>建议按这个顺序试：</h3>
           <ul>
             <li>进入 Inbox Drafts，观察 loading badge 和事件日志。</li>
-            <li>进入 Editor，点“Mark Dirty”，再尝试离开，看 beforeLeave 阻断。</li>
-            <li>切换 Reports plugin，观察 route-tree-change 和当前页面重匹配。</li>
+            <li>
+              进入 Editor，点“Mark Dirty”，再尝试离开，看 beforeLeave 阻断。
+            </li>
+            <li>
+              切换 Reports plugin，观察 route-tree-change 和当前页面重匹配。
+            </li>
             <li>打开 Broken / Missing，看自定义 error 与 404 slot。</li>
-            <li>打开 Message 42，看 params、query、hash 如何进入 RouteContext。</li>
+            <li>
+              打开 Message 42，看 params、query、hash 如何进入 RouteContext。
+            </li>
           </ul>
         </div>
       </section>
@@ -148,8 +157,9 @@ export class ExampleInboxLayout extends ExampleRouteElement {
         <div class="stack">
           <h2 data-route-focus tabindex="-1">Inbox Layout</h2>
           <p>
-            这个父路由组件只负责布局和 <code>&lt;slot name="route-child"&gt;</code>，
-            子页面通过原生 slot 投影进来。
+            这个父路由组件只负责布局和
+            <code>&lt;slot name="route-child"&gt;</code>， 子页面通过原生 slot
+            投影进来。
           </p>
         </div>
 
@@ -212,8 +222,8 @@ export class ExampleMessagePage extends ExampleRouteElement {
       <section class="subpanel stack">
         <h3 data-route-focus tabindex="-1">Message ${this.params.id}</h3>
         <p>
-          这个页面演示 <code>RouteContext</code>：路径参数、query、hash 和 direction
-          都可以直接从上下文里读取。
+          这个页面演示 <code>RouteContext</code>：路径参数、query、hash 和
+          direction 都可以直接从上下文里读取。
         </p>
         <pre>${JSON.stringify(snapshot, null, 2)}</pre>
       </section>
@@ -244,8 +254,8 @@ export class ExampleEditorPage extends ExampleRouteElement {
         <div class="stack">
           <h2 data-route-focus tabindex="-1">Editor</h2>
           <p>
-            这个页面挂了 <code>beforeLeave</code>。只要状态是 dirty，离开当前分支的
-            导航就会被阻断，包含浏览器后退。
+            这个页面挂了 <code>beforeLeave</code>。只要状态是
+            dirty，离开当前分支的 导航就会被阻断，包含浏览器后退。
           </p>
         </div>
 
@@ -275,8 +285,8 @@ export class ExampleLabPage extends ExampleRouteElement {
       <section class="panel stack">
         <h2 data-route-focus tabindex="-1">Guarded Lab</h2>
         <p>
-          这个路由受 <code>guard</code> 保护。未解锁时会直接重定向回首页并带上 query
-          标记。
+          这个路由受 <code>guard</code> 保护。未解锁时会直接重定向回首页并带上
+          query 标记。
         </p>
       </section>
     `;

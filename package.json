@@ -1,0 +1,64 @@
+{
+  "name": "@elelcode/lit-router",
+  "version": "2.1.2",
+  "description": "A Navigation API-first router for Web Components and Lit, built around native browser capabilities such as URLPattern, Navigation API, and View Transitions API.",
+  "type": "module",
+  "main": "./dist/router.js",
+  "module": "./dist/router.js",
+  "types": "./dist/router.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/router.d.ts",
+      "import": "./dist/router.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "vite build",
+    "build:e2e": "vite build --config vite.e2e.config.ts",
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run tests/router_test.ts tests/extensions_test.ts",
+    "test:watch": "vitest tests/router_test.ts tests/extensions_test.ts",
+    "test:e2e": "npm run build:e2e && vitest run tests/e2e/e2e_test.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hiykhello/lit-router.git"
+  },
+  "keywords": [
+    "lit",
+    "router",
+    "web-components",
+    "navigation-api",
+    "view-transitions"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "bugs": {
+    "url": "https://github.com/hiykhello/lit-router/issues"
+  },
+  "homepage": "https://github.com/hiykhello/lit-router#readme",
+  "peerDependencies": {
+    "lit": "^3.0.0"
+  },
+  "devDependencies": {
+    "@typescript/typescript6": "^6.0.2",
+    "happy-dom": "^21.0.4",
+    "lit": "^3.3.3",
+    "prettier": "^3.5.3",
+    "puppeteer": "^25.16.0",
+    "typescript": "^7.0.2",
+    "urlpattern-polyfill": "^10.1.0",
+    "vite": "^8.3.6",
+    "vite-plugin-dts": "^5.1.2",
+    "vitest": "^5.1.0"
+  }
+}

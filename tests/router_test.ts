@@ -1,6 +1,15 @@
-import { assert, assertEquals } from "@std/assert";
+import { test } from "vitest";
+import {
+  assert,
+  assertEquals,
+  ensureDom,
+  resetDom,
+  settle,
+  teardownDom,
+} from "./test_setup.ts";
+import { Router } from "../src/router-core.ts";
+import "../src/router-view.ts";
 import { ScrollManager } from "../src/scroll-manager.ts";
-import { ensureDom, resetDom, settle, teardownDom } from "./test_setup.ts";
 type Router = import("../src/router-core.ts").Router;
 type RouteContext = import("../src/router-core.ts").RouteContext;
 type RouteDefinition = import("../src/router-core.ts").RouteDefinition;
@@ -236,7 +245,7 @@ async function withRouters(
   }
 }
 
-Deno.test("guard relative redirect resolves from the target URL", async () => {
+test("guard relative redirect resolves from the target URL", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -267,7 +276,7 @@ Deno.test("guard relative redirect resolves from the target URL", async () => {
   });
 });
 
-Deno.test("router click interception respects preventDefault from app code", async () => {
+test("router click interception respects preventDefault from app code", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -298,7 +307,7 @@ Deno.test("router click interception respects preventDefault from app code", asy
   });
 });
 
-Deno.test("router ignores same-origin links outside basePath", async () => {
+test("router ignores same-origin links outside basePath", async () => {
   await withRouters(async (createRouter) => {
     const dom = browser();
     dom.history.replaceState(null, "", "/app/");
@@ -337,7 +346,7 @@ Deno.test("router ignores same-origin links outside basePath", async () => {
   });
 });
 
-Deno.test("router-view shows default 404 fallback for initial not-found state", async () => {
+test("router-view shows default 404 fallback for initial not-found state", async () => {
   await withRouters(async (createRouter) => {
     const dom = browser();
     dom.history.replaceState(null, "", "/missing");
@@ -365,7 +374,7 @@ Deno.test("router-view shows default 404 fallback for initial not-found state", 
   });
 });
 
-Deno.test("router-view allows custom 404 slot fallback", async () => {
+test("router-view allows custom 404 slot fallback", async () => {
   await withRouters(async (createRouter) => {
     const dom = browser();
     dom.history.replaceState(null, "", "/missing");
@@ -389,15 +398,14 @@ Deno.test("router-view allows custom 404 slot fallback", async () => {
 
     await settle(view);
 
-    const slot = view.shadowRoot?.querySelector<HTMLSlotElement>(
-      'slot[name="404"]',
-    );
+    const slot =
+      view.shadowRoot?.querySelector<HTMLSlotElement>('slot[name="404"]');
     assert(slot);
     assertEquals(slot.assignedElements({ flatten: true })[0], customFallback);
   });
 });
 
-Deno.test("router-view shows default error fallback when route loading fails", async () => {
+test("router-view shows default error fallback when route loading fails", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -433,7 +441,7 @@ Deno.test("router-view shows default error fallback when route loading fails", a
   });
 });
 
-Deno.test("router deduplicates concurrent route loads for the same branch", async () => {
+test("router deduplicates concurrent route loads for the same branch", async () => {
   await withRouters(async (createRouter) => {
     let loadCalls = 0;
     let resolveLoad: (() => void) | undefined;
@@ -468,7 +476,7 @@ Deno.test("router deduplicates concurrent route loads for the same branch", asyn
   });
 });
 
-Deno.test("router emits loading start and end events around async route loads", async () => {
+test("router emits loading start and end events around async route loads", async () => {
   await withRouters(async (createRouter) => {
     let resolveLoad: (() => void) | undefined;
     const loadingEvents: Array<{
@@ -529,7 +537,7 @@ Deno.test("router emits loading start and end events around async route loads", 
   });
 });
 
-Deno.test("router aborts stale guard signals when a newer navigation starts", async () => {
+test("router aborts stale guard signals when a newer navigation starts", async () => {
   await withRouters(async (createRouter) => {
     const guardSignals: AbortSignal[] = [];
     const router = createRouter({
@@ -563,7 +571,7 @@ Deno.test("router aborts stale guard signals when a newer navigation starts", as
   });
 });
 
-Deno.test("commitNavigation does not mutate the resolved route detail", async () => {
+test("commitNavigation does not mutate the resolved route detail", async () => {
   await withRouters(async (createRouter) => {
     const dom = browser();
     const router = createRouter({
@@ -597,7 +605,7 @@ Deno.test("commitNavigation does not mutate the resolved route detail", async ()
   });
 });
 
-Deno.test("route beforeLeave blocks leaving the current page", async () => {
+test("route beforeLeave blocks leaving the current page", async () => {
   await withRouters(async (createRouter) => {
     const dom = browser();
     const router = createRouter({
@@ -620,7 +628,7 @@ Deno.test("route beforeLeave blocks leaving the current page", async () => {
   });
 });
 
-Deno.test("route beforeLeave only runs for the leaving branch suffix", async () => {
+test("route beforeLeave only runs for the leaving branch suffix", async () => {
   await withRouters(async (createRouter) => {
     let parentLeaveCalls = 0;
     let childLeaveCalls = 0;
@@ -663,7 +671,7 @@ Deno.test("route beforeLeave only runs for the leaving branch suffix", async () 
   });
 });
 
-Deno.test("router-view uses explicit route context receiver contract", async () => {
+test("router-view uses explicit route context receiver contract", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -687,9 +695,9 @@ Deno.test("router-view uses explicit route context receiver contract", async () 
 
     const element = view.shadowRoot?.querySelector("test-route-aware") as
       | (HTMLElement & {
-        routeContext?: RouteContext;
-        receivedContexts: RouteContext[];
-      })
+          routeContext?: RouteContext;
+          receivedContexts: RouteContext[];
+        })
       | null;
 
     assert(element);
@@ -708,7 +716,7 @@ Deno.test("router-view uses explicit route context receiver contract", async () 
   });
 });
 
-Deno.test("router-view warns once when a parent route is missing the child slot", async () => {
+test("router-view warns once when a parent route is missing the child slot", async () => {
   await withRouters(async (createRouter) => {
     const dom = browser();
     const originalWarn = console.warn;
@@ -751,7 +759,7 @@ Deno.test("router-view warns once when a parent route is missing the child slot"
       const slotWarnings = warnings.filter((message) =>
         message.includes(
           "[router-view] Parent component <test-route-broken-layout>",
-        )
+        ),
       );
 
       assertEquals(slotWarnings.length, 1);
@@ -765,7 +773,7 @@ Deno.test("router-view warns once when a parent route is missing the child slot"
   });
 });
 
-Deno.test("router resolves parallel named slot branches for one URL", async () => {
+test("router resolves parallel named slot branches for one URL", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -788,10 +796,10 @@ Deno.test("router resolves parallel named slot branches for one URL", async () =
     router.push("/settings/profile");
     await settle();
 
-    assertEquals(router.current.branch.map((route) => route.component), [
-      "test-route-slotted-layout",
-      "test-route-page",
-    ]);
+    assertEquals(
+      router.current.branch.map((route) => route.component),
+      ["test-route-slotted-layout", "test-route-page"],
+    );
     assertEquals(
       router.current.slotBranches?.sidebar?.map((route) => route.component),
       ["test-route-slotted-layout", "test-route-alt"],
@@ -803,7 +811,7 @@ Deno.test("router resolves parallel named slot branches for one URL", async () =
   });
 });
 
-Deno.test("router-view projects parallel route branches into named slots", async () => {
+test("router-view projects parallel route branches into named slots", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -837,12 +845,12 @@ Deno.test("router-view projects parallel route branches into named slots", async
     await settle(view);
 
     const layout = view.shadowRoot?.querySelector("test-route-slotted-layout");
-    const page = view.shadowRoot?.querySelector("test-route-page") as
-      | HTMLElement
-      | null;
-    const sidebar = view.shadowRoot?.querySelector("test-route-alt") as
-      | HTMLElement
-      | null;
+    const page = view.shadowRoot?.querySelector(
+      "test-route-page",
+    ) as HTMLElement | null;
+    const sidebar = view.shadowRoot?.querySelector(
+      "test-route-alt",
+    ) as HTMLElement | null;
 
     assert(layout);
     assert(page);
@@ -858,7 +866,7 @@ Deno.test("router-view projects parallel route branches into named slots", async
   });
 });
 
-Deno.test("slot route components receive slot-aware route context", async () => {
+test("slot route components receive slot-aware route context", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -891,8 +899,7 @@ Deno.test("slot route components receive slot-aware route context", async () => 
     await settle(view);
 
     const sidebar = view.shadowRoot?.querySelector("test-route-aware") as
-      | (HTMLElement & { routeContext?: RouteContext })
-      | null;
+      (HTMLElement & { routeContext?: RouteContext }) | null;
 
     assert(sidebar);
     assertEquals(sidebar.routeContext?.slot, "sidebar");
@@ -904,7 +911,7 @@ Deno.test("slot route components receive slot-aware route context", async () => 
   });
 });
 
-Deno.test("guards and lazy loads include parallel slot routes", async () => {
+test("guards and lazy loads include parallel slot routes", async () => {
   await withRouters(async (createRouter) => {
     let sidebarGuardCalls = 0;
     let sidebarLoadCalls = 0;
@@ -947,14 +954,14 @@ Deno.test("guards and lazy loads include parallel slot routes", async () => {
     assertEquals(router.current.localPathname, "/settings/profile");
     assertEquals(sidebarGuardCalls, 1);
     assertEquals(sidebarLoadCalls, 1);
-    assertEquals(loadingEvents.map((event) => event.loadingSlots), [
-      ["sidebar"],
-      ["sidebar"],
-    ]);
+    assertEquals(
+      loadingEvents.map((event) => event.loadingSlots),
+      [["sidebar"], ["sidebar"]],
+    );
   });
 });
 
-Deno.test("router change details serialize URLSearchParams with toJSON", async () => {
+test("router change details serialize URLSearchParams with toJSON", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -987,7 +994,7 @@ Deno.test("router change details serialize URLSearchParams with toJSON", async (
   });
 });
 
-Deno.test("router-view only moves focus between side slots when focus was inside the old side slot", async () => {
+test("router-view only moves focus between side slots when focus was inside the old side slot", async () => {
   await withRouters(async (createRouter) => {
     const dom = browser();
     const makeSidebar = (label: string) => {
@@ -1063,7 +1070,7 @@ Deno.test("router-view only moves focus between side slots when focus was inside
   });
 });
 
-Deno.test("beforeLeave runs for leaving slot branches before the main branch", async () => {
+test("beforeLeave runs for leaving slot branches before the main branch", async () => {
   await withRouters(async (createRouter) => {
     const calls: string[] = [];
     const router = createRouter({
@@ -1106,7 +1113,7 @@ Deno.test("beforeLeave runs for leaving slot branches before the main branch", a
   });
 });
 
-Deno.test("slot route branches support nested recursive projection through side slots", async () => {
+test("slot route branches support nested recursive projection through side slots", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -1149,14 +1156,12 @@ Deno.test("slot route branches support nested recursive projection through side 
     const sidebarLayout = view.shadowRoot?.querySelector(
       "test-route-sidebar-layout",
     );
-    const sidebarHome = view.shadowRoot?.querySelector("test-route-drafts") as
-      | HTMLElement
-      | null;
+    const sidebarHome = view.shadowRoot?.querySelector(
+      "test-route-drafts",
+    ) as HTMLElement | null;
     const sidebarTools = view.shadowRoot?.querySelector(
       "test-route-security",
-    ) as
-      | HTMLElement
-      | null;
+    ) as HTMLElement | null;
 
     assert(sidebarLayout);
     assert(sidebarHome);
@@ -1167,7 +1172,7 @@ Deno.test("slot route branches support nested recursive projection through side 
   });
 });
 
-Deno.test("router rejects reserved route slot names", async () => {
+test("router rejects reserved route slot names", async () => {
   await withRouters((createRouter) => {
     let thrown: unknown;
 
@@ -1187,7 +1192,7 @@ Deno.test("router rejects reserved route slot names", async () => {
   });
 });
 
-Deno.test("router-view supports routeContext property receivers", async () => {
+test("router-view supports routeContext property receivers", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -1209,9 +1214,9 @@ Deno.test("router-view supports routeContext property receivers", async () => {
     router.push("/users/7");
     await settle(view);
 
-    const element = view.shadowRoot?.querySelector("test-route-context-prop") as
-      | (HTMLElement & { routeContext?: RouteContext })
-      | null;
+    const element = view.shadowRoot?.querySelector(
+      "test-route-context-prop",
+    ) as (HTMLElement & { routeContext?: RouteContext }) | null;
 
     assert(element);
     assertEquals(element.routeContext?.detail.localPathname, "/users/7");
@@ -1219,7 +1224,7 @@ Deno.test("router-view supports routeContext property receivers", async () => {
   });
 });
 
-Deno.test("router-view no longer injects legacy routeDetail and routeParams fields", async () => {
+test("router-view no longer injects legacy routeDetail and routeParams fields", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -1241,11 +1246,13 @@ Deno.test("router-view no longer injects legacy routeDetail and routeParams fiel
     router.push("/legacy");
     await settle(view);
 
-    const element = view.shadowRoot?.querySelector("test-route-legacy-probe") as
+    const element = view.shadowRoot?.querySelector(
+      "test-route-legacy-probe",
+    ) as
       | (HTMLElement & {
-        routeDetailAssignments: number;
-        routeParamsAssignments: number;
-      })
+          routeDetailAssignments: number;
+          routeParamsAssignments: number;
+        })
       | null;
 
     assert(element);
@@ -1254,7 +1261,7 @@ Deno.test("router-view no longer injects legacy routeDetail and routeParams fiel
   });
 });
 
-Deno.test("route meta is available to guards and route detail without DOM injection", async () => {
+test("route meta is available to guards and route detail without DOM injection", async () => {
   await withRouters(async (createRouter) => {
     const guardMetaValues: unknown[] = [];
     const router = createRouter({
@@ -1285,9 +1292,9 @@ Deno.test("route meta is available to guards and route detail without DOM inject
     router.push("/admin");
     await settle(view);
 
-    const element = view.shadowRoot?.querySelector("test-route-context-prop") as
-      | (HTMLElement & { meta?: unknown })
-      | null;
+    const element = view.shadowRoot?.querySelector(
+      "test-route-context-prop",
+    ) as (HTMLElement & { meta?: unknown }) | null;
 
     assert(element);
     assertEquals(guardMetaValues, [true]);
@@ -1298,7 +1305,7 @@ Deno.test("route meta is available to guards and route detail without DOM inject
   });
 });
 
-Deno.test("router builds links from named routes and route params", async () => {
+test("router builds links from named routes and route params", async () => {
   await withRouters(async (createRouter) => {
     const dom = browser();
     dom.history.replaceState(null, "", "/app/");
@@ -1334,10 +1341,13 @@ Deno.test("router builds links from named routes and route params", async () => 
       "/app/users/123?tab=profile&filter=new&filter=open#summary",
     );
     assertEquals(
-      router.linkAttributes({
-        name: "user-detail",
-        params: { id: 123 },
-      }, { replace: true }),
+      router.linkAttributes(
+        {
+          name: "user-detail",
+          params: { id: 123 },
+        },
+        { replace: true },
+      ),
       {
         href: "/app/users/123",
         "data-router-replace": "",
@@ -1359,7 +1369,7 @@ Deno.test("router builds links from named routes and route params", async () => 
   });
 });
 
-Deno.test("router resolves URLs and named routes without navigating", async () => {
+test("router resolves URLs and named routes without navigating", async () => {
   await withRouters(async (createRouter) => {
     const typedEvents: string[] = [];
     const router = createRouter({
@@ -1403,7 +1413,7 @@ Deno.test("router resolves URLs and named routes without navigating", async () =
   });
 });
 
-Deno.test("router rejects duplicate route names", async () => {
+test("router rejects duplicate route names", async () => {
   await withRouters((createRouter) => {
     let thrown: unknown;
 
@@ -1419,14 +1429,11 @@ Deno.test("router rejects duplicate route names", async () => {
     }
 
     assert(thrown instanceof Error);
-    assertEquals(
-      thrown.message.includes('Duplicate route name "home"'),
-      true,
-    );
+    assertEquals(thrown.message.includes('Duplicate route name "home"'), true);
   });
 });
 
-Deno.test("router rejects duplicate route ids", async () => {
+test("router rejects duplicate route ids", async () => {
   await withRouters((createRouter) => {
     let thrown: unknown;
 
@@ -1442,14 +1449,11 @@ Deno.test("router rejects duplicate route ids", async () => {
     }
 
     assert(thrown instanceof Error);
-    assertEquals(
-      thrown.message.includes('Duplicate route id "home"'),
-      true,
-    );
+    assertEquals(thrown.message.includes('Duplicate route id "home"'), true);
   });
 });
 
-Deno.test("router prioritizes static routes over dynamic and catch-all siblings", async () => {
+test("router prioritizes static routes over dynamic and catch-all siblings", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -1479,7 +1483,7 @@ Deno.test("router prioritizes static routes over dynamic and catch-all siblings"
   });
 });
 
-Deno.test("router can clear beforeRoute via configure", async () => {
+test("router can clear beforeRoute via configure", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       beforeRoute: () => false,
@@ -1503,7 +1507,7 @@ Deno.test("router can clear beforeRoute via configure", async () => {
   });
 });
 
-Deno.test("router can replace the route tree at runtime", async () => {
+test("router can replace the route tree at runtime", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -1537,19 +1541,14 @@ Deno.test("router can replace the route tree at runtime", async () => {
     }
 
     assert(thrown instanceof Error);
-    assertEquals(
-      thrown.message.includes('Unknown route name "alpha"'),
-      true,
-    );
+    assertEquals(thrown.message.includes('Unknown route name "alpha"'), true);
   });
 });
 
-Deno.test("router can insert root routes at runtime", async () => {
+test("router can insert root routes at runtime", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
-      routes: [
-        { path: "", name: "home", component: "test-route-page" },
-      ],
+      routes: [{ path: "", name: "home", component: "test-route-page" }],
     });
 
     await settle();
@@ -1567,15 +1566,13 @@ Deno.test("router can insert root routes at runtime", async () => {
   });
 });
 
-Deno.test("unrelated route insertion emits route-tree-change without route-change", async () => {
+test("unrelated route insertion emits route-tree-change without route-change", async () => {
   await withRouters(async (createRouter) => {
     const routeChanges: RouteTreeChangeDetail[] = [];
     let navigationChanges = 0;
 
     const router = createRouter({
-      routes: [
-        { path: "", name: "home", component: "test-route-page" },
-      ],
+      routes: [{ path: "", name: "home", component: "test-route-page" }],
     });
 
     await settle();
@@ -1615,7 +1612,7 @@ Deno.test("unrelated route insertion emits route-tree-change without route-chang
   });
 });
 
-Deno.test("unrelated route insertion does not cancel an in-flight navigation", async () => {
+test("unrelated route insertion does not cancel an in-flight navigation", async () => {
   await withRouters(async (createRouter) => {
     const pendingResolutions: Array<(value: true) => void> = [];
     const router = createRouter({
@@ -1651,7 +1648,7 @@ Deno.test("unrelated route insertion does not cancel an in-flight navigation", a
   });
 });
 
-Deno.test("router can insert nested routes at runtime and rematch the current URL", async () => {
+test("router can insert nested routes at runtime and rematch the current URL", async () => {
   await withRouters(async (createRouter) => {
     const dom = browser();
     dom.history.replaceState(null, "", "/settings/security");
@@ -1662,9 +1659,7 @@ Deno.test("router can insert nested routes at runtime and rematch the current UR
           path: "settings",
           name: "settings",
           component: "test-route-layout",
-          children: [
-            { path: "", component: "test-route-page" },
-          ],
+          children: [{ path: "", component: "test-route-page" }],
         },
       ],
     });
@@ -1684,15 +1679,18 @@ Deno.test("router can insert nested routes at runtime and rematch the current UR
     assert(initialFallback);
     assertEquals(initialFallback.hidden, false);
 
-    router.insertRoutes([
+    router.insertRoutes(
+      [
+        {
+          path: "security",
+          name: "settings-security",
+          component: "test-route-security",
+        },
+      ],
       {
-        path: "security",
-        name: "settings-security",
-        component: "test-route-security",
+        parentName: "settings",
       },
-    ], {
-      parentName: "settings",
-    });
+    );
     await settle(view);
 
     assertEquals(router.current.localPathname, "/settings/security");
@@ -1704,7 +1702,7 @@ Deno.test("router can insert nested routes at runtime and rematch the current UR
   });
 });
 
-Deno.test("router can insert nested routes by parentId when the parent has no route name", async () => {
+test("router can insert nested routes by parentId when the parent has no route name", async () => {
   await withRouters(async (createRouter) => {
     const dom = browser();
     dom.history.replaceState(null, "", "/settings/security");
@@ -1715,9 +1713,7 @@ Deno.test("router can insert nested routes by parentId when the parent has no ro
           id: "settings-shell",
           path: "settings",
           component: "test-route-layout",
-          children: [
-            { path: "", component: "test-route-page" },
-          ],
+          children: [{ path: "", component: "test-route-page" }],
         },
       ],
     });
@@ -1731,15 +1727,18 @@ Deno.test("router can insert nested routes by parentId when the parent has no ro
     dom.document.body.append(view);
 
     await settle(view);
-    router.insertRoutes([
+    router.insertRoutes(
+      [
+        {
+          id: "settings-security-page",
+          path: "security",
+          component: "test-route-security",
+        },
+      ],
       {
-        id: "settings-security-page",
-        path: "security",
-        component: "test-route-security",
+        parentId: "settings-shell",
       },
-    ], {
-      parentId: "settings-shell",
-    });
+    );
     await settle(view);
 
     assertEquals(router.current.localPathname, "/settings/security");
@@ -1747,14 +1746,12 @@ Deno.test("router can insert nested routes by parentId when the parent has no ro
   });
 });
 
-Deno.test("router batches route tree updates into one refresh", async () => {
+test("router batches route tree updates into one refresh", async () => {
   await withRouters(async (createRouter) => {
     const routeChanges: RouteTreeChangeDetail[] = [];
     let navigationChanges = 0;
     const router = createRouter({
-      routes: [
-        { path: "", name: "home", component: "test-route-page" },
-      ],
+      routes: [{ path: "", name: "home", component: "test-route-page" }],
     });
 
     await settle();
@@ -1784,13 +1781,11 @@ Deno.test("router batches route tree updates into one refresh", async () => {
   });
 });
 
-Deno.test("router rolls back batched route updates when the batch throws", async () => {
+test("router rolls back batched route updates when the batch throws", async () => {
   await withRouters(async (createRouter) => {
     const routeChanges: RouteTreeChangeDetail[] = [];
     const router = createRouter({
-      routes: [
-        { path: "", name: "home", component: "test-route-page" },
-      ],
+      routes: [{ path: "", name: "home", component: "test-route-page" }],
     });
 
     await settle();
@@ -1831,12 +1826,10 @@ Deno.test("router rolls back batched route updates when the batch throws", async
   });
 });
 
-Deno.test("router rejects async batchRouteUpdates callbacks", async () => {
+test("router rejects async batchRouteUpdates callbacks", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
-      routes: [
-        { path: "", name: "home", component: "test-route-page" },
-      ],
+      routes: [{ path: "", name: "home", component: "test-route-page" }],
     });
 
     await settle();
@@ -1868,12 +1861,10 @@ Deno.test("router rejects async batchRouteUpdates callbacks", async () => {
   });
 });
 
-Deno.test("router routes getter returns a frozen snapshot and setter applies a replacement", async () => {
+test("router routes getter returns a frozen snapshot and setter applies a replacement", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
-      routes: [
-        { path: "", name: "home", component: "test-route-page" },
-      ],
+      routes: [{ path: "", name: "home", component: "test-route-page" }],
     });
 
     await settle();
@@ -1900,10 +1891,7 @@ Deno.test("router routes getter returns a frozen snapshot and setter applies a r
     }
 
     assert(thrown instanceof Error);
-    assertEquals(
-      thrown.message.includes('Unknown route name "ignored"'),
-      true,
-    );
+    assertEquals(thrown.message.includes('Unknown route name "ignored"'), true);
     assertEquals(router.cloneRoutes().length, 1);
 
     router.routes = [
@@ -1916,7 +1904,7 @@ Deno.test("router routes getter returns a frozen snapshot and setter applies a r
   });
 });
 
-Deno.test("router can remove unnamed route branches by id", async () => {
+test("router can remove unnamed route branches by id", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -1964,7 +1952,7 @@ Deno.test("router can remove unnamed route branches by id", async () => {
   });
 });
 
-Deno.test("route removal invalidates an in-flight navigation to the removed branch", async () => {
+test("route removal invalidates an in-flight navigation to the removed branch", async () => {
   await withRouters(async (createRouter) => {
     const pendingResolutions: Array<(value: true) => void> = [];
     const notFoundEvents: RouteNotFoundDetail[] = [];
@@ -2006,7 +1994,7 @@ Deno.test("route removal invalidates an in-flight navigation to the removed bran
   });
 });
 
-Deno.test("router.stop invalidates an in-flight navigation", async () => {
+test("router.stop invalidates an in-flight navigation", async () => {
   await withRouters(async (createRouter) => {
     const pendingResolutions: Array<(value: true) => void> = [];
     let routeChanges = 0;
@@ -2042,7 +2030,7 @@ Deno.test("router.stop invalidates an in-flight navigation", async () => {
   });
 });
 
-Deno.test("router stores a distinct scroll navigation key per pushed entry", async () => {
+test("router stores a distinct scroll navigation key per pushed entry", async () => {
   await withRouters(async (createRouter) => {
     const dom = browser();
     const router = createRouter({
@@ -2075,7 +2063,7 @@ Deno.test("router stores a distinct scroll navigation key per pushed entry", asy
   });
 });
 
-Deno.test("router bounds navigation entry order bookkeeping", async () => {
+test("router bounds navigation entry order bookkeeping", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -2095,10 +2083,7 @@ Deno.test("router bounds navigation entry order bookkeeping", async () => {
       navigationEntryOrders: Map<string, number>;
     };
 
-    assertEquals(
-      internals.navigationEntryOrders.size <= 256,
-      true,
-    );
+    assertEquals(internals.navigationEntryOrders.size <= 256, true);
     assertEquals(
       internals.navigationEntryOrders.has(router.current.navigationKey),
       true,
@@ -2106,7 +2091,7 @@ Deno.test("router bounds navigation entry order bookkeeping", async () => {
   });
 });
 
-Deno.test("route beforeLeave restores the current URL when browser back is blocked", async () => {
+test("route beforeLeave restores the current URL when browser back is blocked", async () => {
   await withRouters(async (createRouter) => {
     const dom = browser();
     const router = createRouter({
@@ -2133,7 +2118,7 @@ Deno.test("route beforeLeave restores the current URL when browser back is block
   });
 });
 
-Deno.test("router matches URLPattern splat params across multiple segments", async () => {
+test("router matches URLPattern splat params across multiple segments", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -2147,14 +2132,15 @@ Deno.test("router matches URLPattern splat params across multiple segments", asy
     await settle();
 
     assertEquals(router.current.localPathname, "/docs/guides/native/router");
-    assertEquals(router.current.branch.map((route) => route.path), [
-      "docs/:parts*",
-    ]);
+    assertEquals(
+      router.current.branch.map((route) => route.path),
+      ["docs/:parts*"],
+    );
     assertEquals(router.current.params.parts, "guides/native/router");
   });
 });
 
-Deno.test("router matches optional URLPattern segments when they are omitted or present", async () => {
+test("router matches optional URLPattern segments when they are omitted or present", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -2169,22 +2155,24 @@ Deno.test("router matches optional URLPattern segments when they are omitted or 
     router.push("/docs");
     await settle();
 
-    assertEquals(router.current.branch.map((route) => route.path), [
-      ":lang?/docs",
-    ]);
+    assertEquals(
+      router.current.branch.map((route) => route.path),
+      [":lang?/docs"],
+    );
     assertEquals(router.current.params, {});
 
     router.push("/zh/docs");
     await settle();
 
-    assertEquals(router.current.branch.map((route) => route.path), [
-      ":lang?/docs",
-    ]);
+    assertEquals(
+      router.current.branch.map((route) => route.path),
+      [":lang?/docs"],
+    );
     assertEquals(router.current.params.lang, "zh");
   });
 });
 
-Deno.test("router builds links for optional route segments when params are omitted", async () => {
+test("router builds links for optional route segments when params are omitted", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -2211,7 +2199,7 @@ Deno.test("router builds links for optional route segments when params are omitt
   });
 });
 
-Deno.test("router uses Navigation API listeners without popstate or hashchange", async () => {
+test("router uses Navigation API listeners without popstate or hashchange", async () => {
   await withRouters(async (createRouter) => {
     const dom = browser();
     const windowTarget = dom.window as Window & {
@@ -2289,8 +2277,8 @@ Deno.test("router uses Navigation API listeners without popstate or hashchange",
     });
 
     const originalNavigationAddEventListener = navigationApi.addEventListener;
-    const originalNavigationRemoveEventListener = navigationApi
-      .removeEventListener;
+    const originalNavigationRemoveEventListener =
+      navigationApi.removeEventListener;
     Object.defineProperty(navigationApi, "addEventListener", {
       configurable: true,
       value: function (
@@ -2367,7 +2355,7 @@ Deno.test("router uses Navigation API listeners without popstate or hashchange",
   });
 });
 
-Deno.test("router intercepts SVG anchor elements", async () => {
+test("router intercepts SVG anchor elements", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -2402,7 +2390,7 @@ Deno.test("router intercepts SVG anchor elements", async () => {
   });
 });
 
-Deno.test("router-view restores scrollRestoration on disconnect", async () => {
+test("router-view restores scrollRestoration on disconnect", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [{ path: "", component: "test-route-page" }],
@@ -2427,7 +2415,7 @@ Deno.test("router-view restores scrollRestoration on disconnect", async () => {
   });
 });
 
-Deno.test("scroll manager keeps browser scrollRestoration manual until all users release", () => {
+test("scroll manager keeps browser scrollRestoration manual until all users release", () => {
   resetDom();
   const dom = browser();
   const first = new ScrollManager();
@@ -2445,7 +2433,7 @@ Deno.test("scroll manager keeps browser scrollRestoration manual until all users
   assertEquals(dom.history.scrollRestoration, "auto");
 });
 
-Deno.test("router-view exposes route-level view transition names", async () => {
+test("router-view exposes route-level view transition names", async () => {
   await withRouters(async (createRouter) => {
     const dom = browser();
     const router = createRouter({
@@ -2481,13 +2469,11 @@ Deno.test("router-view exposes route-level view transition names", async () => {
   });
 });
 
-Deno.test("router-view reports commit errors even when view transitions are enabled", async () => {
+test("router-view reports commit errors even when view transitions are enabled", async () => {
   await withRouters(async (createRouter) => {
     const dom = browser();
     const transitionDocument = dom.document as Document & {
-      startViewTransition?: (
-        callback: () => Promise<void> | void,
-      ) => {
+      startViewTransition?: (callback: () => Promise<void> | void) => {
         finished: Promise<void>;
         updateCallbackDone?: Promise<void>;
       };
@@ -2552,7 +2538,7 @@ Deno.test("router-view reports commit errors even when view transitions are enab
   });
 });
 
-Deno.test("router-view exposes transition direction on the host element", async () => {
+test("router-view exposes transition direction on the host element", async () => {
   await withRouters(async (createRouter) => {
     const dom = browser();
     const router = createRouter({
@@ -2593,7 +2579,7 @@ Deno.test("router-view exposes transition direction on the host element", async 
   });
 });
 
-Deno.test("scroll manager decodes hash fragments before scrolling to targets", () => {
+test("scroll manager decodes hash fragments before scrolling to targets", () => {
   resetDom();
   const dom = browser();
   const manager = new ScrollManager();
@@ -2614,7 +2600,7 @@ Deno.test("scroll manager decodes hash fragments before scrolling to targets", (
   assertEquals(scrollIntoViewCalls, 1);
 });
 
-Deno.test("scroll manager resolves hash targets on shadow hosts exposed in light DOM", () => {
+test("scroll manager resolves hash targets on shadow hosts exposed in light DOM", () => {
   resetDom();
   const dom = browser();
   const manager = new ScrollManager();
@@ -2636,7 +2622,7 @@ Deno.test("scroll manager resolves hash targets on shadow hosts exposed in light
   assertEquals(scrollIntoViewCalls, 1);
 });
 
-Deno.test("scroll manager does not recurse into shadow roots for hash targets", () => {
+test("scroll manager does not recurse into shadow roots for hash targets", () => {
   resetDom();
   const dom = browser();
   const windowTarget = dom.window as Window;
@@ -2673,7 +2659,7 @@ Deno.test("scroll manager does not recurse into shadow roots for hash targets", 
   assertEquals(scrollCalls[0]?.behavior, "instant");
 });
 
-Deno.test("scroll manager restores positions by navigation entry key instead of URL", () => {
+test("scroll manager restores positions by navigation entry key instead of URL", () => {
   resetDom();
   const dom = browser();
   const windowTarget = dom.window as Window;
@@ -2708,7 +2694,7 @@ Deno.test("scroll manager restores positions by navigation entry key instead of 
   assertEquals(scrollCalls[0]?.behavior, "instant");
 });
 
-Deno.test("scroll manager falls back to top when a hash target is missing", () => {
+test("scroll manager falls back to top when a hash target is missing", () => {
   resetDom();
   const dom = browser();
   const windowTarget = dom.window as Window;
@@ -2730,7 +2716,7 @@ Deno.test("scroll manager falls back to top when a hash target is missing", () =
   assertEquals(scrollCalls[0]?.behavior, "instant");
 });
 
-Deno.test("router-view bounds scroll position cache with LRU eviction", async () => {
+test("router-view bounds scroll position cache with LRU eviction", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [{ path: "", component: "test-route-page" }],
@@ -2791,7 +2777,7 @@ Deno.test("router-view bounds scroll position cache with LRU eviction", async ()
   });
 });
 
-Deno.test("router-view removes stale nested children when branch shrinks", async () => {
+test("router-view removes stale nested children when branch shrinks", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -2827,7 +2813,7 @@ Deno.test("router-view removes stale nested children when branch shrinks", async
   });
 });
 
-Deno.test("router-view stops the previous router when swapping instances", async () => {
+test("router-view stops the previous router when swapping instances", async () => {
   await withRouters(async (createRouter) => {
     const routerA = createRouter({
       routes: [{ path: "", component: "test-route-page" }],
@@ -2854,7 +2840,7 @@ Deno.test("router-view stops the previous router when swapping instances", async
   });
 });
 
-Deno.test("router-view cancels pending commits and clears retained refs when disconnected", async () => {
+test("router-view cancels pending commits and clears retained refs when disconnected", async () => {
   await withRouters(async (createRouter) => {
     const dom = browser();
     let resolveUpdate: (() => void) | undefined;
@@ -2864,9 +2850,9 @@ Deno.test("router-view cancels pending commits and clears retained refs when dis
         {
           path: "slow",
           component: () => {
-            const element = dom.document.createElement("section") as
-              & HTMLElement
-              & { updateComplete?: Promise<unknown> };
+            const element = dom.document.createElement(
+              "section",
+            ) as HTMLElement & { updateComplete?: Promise<unknown> };
             element.updateComplete = new Promise<void>((resolve) => {
               resolveUpdate = resolve;
             });
@@ -2907,7 +2893,7 @@ Deno.test("router-view cancels pending commits and clears retained refs when dis
   });
 });
 
-Deno.test("router-view remounts the active branch when routes are replaced at runtime", async () => {
+test("router-view remounts the active branch when routes are replaced at runtime", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [{ path: "", component: "test-route-page" }],
@@ -2933,7 +2919,7 @@ Deno.test("router-view remounts the active branch when routes are replaced at ru
   });
 });
 
-Deno.test("router-view shows not-found when route replacement removes the active match", async () => {
+test("router-view shows not-found when route replacement removes the active match", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -2968,7 +2954,7 @@ Deno.test("router-view shows not-found when route replacement removes the active
   });
 });
 
-Deno.test("router can remove named route branches at runtime", async () => {
+test("router can remove named route branches at runtime", async () => {
   await withRouters(async (createRouter) => {
     const router = createRouter({
       routes: [
@@ -3028,7 +3014,7 @@ Deno.test("router can remove named route branches at runtime", async () => {
   });
 });
 
-Deno.test("independent redirect chains do not accumulate redirect depth", async () => {
+test("independent redirect chains do not accumulate redirect depth", async () => {
   await withRouters(async (createRouter) => {
     const pendingResolutions: Array<(value: true) => void> = [];
     const routeErrors: RouteErrorDetail[] = [];

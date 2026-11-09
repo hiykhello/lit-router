@@ -1,6 +1,51 @@
 # Changelog
 
-## 2.0.0 (Unreleased)
+## 2.1.2 (2026-11-09)
+
+### Fixed
+
+- **Centralized `basePath` Navigation & Resolution**: `router.push("/path")`, `router.replace("/path")`, and `router.resolveUrl("/path")` now properly handle paths starting with `/` when a non-root `basePath` is configured, preventing navigation outside `basePath`.
+- **Parallel Slot Outlet Active Matching**: `router.isActive()` now inspects all active branches (`detailBranches`) across parallel named slots, properly identifying named routes and route IDs inside auxiliary outlets (such as sidebars and panels) as active.
+- **Hierarchical Route Data Inheritance**: `router.getRouteData()` and `detail.data` now gracefully inherit data from the nearest ancestor route in the branch when a leaf route does not declare its own loader.
+- **Safe Multi-Class and Empty-Class Toggling in Directives**: `routerLink` and `activeRoute` now use token-splitting class toggle helpers, preventing browser `DOMException` when multiple space-separated classes (e.g. Tailwind `activeClass: "bg-blue-500 font-bold"`) or empty strings (`activeClass: ""`) are passed.
+- **Dynamic Active Class Cleanup**: Directives now track previous active classes and cleanly remove old classes upon dynamic option updates or element disconnection.
+- **Anchor and Child Click Interception**: Document-level click handler in `RouterCore` and directive click handler now inspect the composed click path to properly respect `data-router-ignore`, `download`, `disabled`, and `aria-disabled="true"` on nested child elements.
+- **Slot-Aware Context Protocol**: `<router-view>` now determines the requesting element's slot outlet, providing accurate slot name, branch, params, and route data to components located in parallel named slot outlets.
+- **Deferred Directive Router Binding**: Directives scheduled before element attachment now automatically re-seek context once attached, ensuring seamless rendering inside template fragments and microtasks.
+- **Directive Active Options Alignment**: `RouterLinkDirectiveOptions` now extends `RouteIsActiveOptions`, allowing query, params, and hash options to be configured alongside `exact`.
+
+## 2.1.1 (2026-11-09)
+
+### Fixed
+
+- **`router.isActive` & `router.link` with `basePath`**: Ensure path and prefix matching compare against local route paths properly, allowing both `/users` and `/app/users` to match when `basePath: "/app"`. `router.link("/users")` now safely prefixes `basePath`.
+- **Named Route Strings**: `router.link("route-name")` and `router.push("route-name")` now support direct named route strings without requiring object wrapping.
+- **Concurrent Loaders & Waterfall Elimination**: Matched route loaders across branches are now executed in parallel via `Promise.all` with duplicate-route execution prevention.
+- **Context Protocol Pre-Subscription**: `<router-view>` now buffers early context subscribers if child components connect before `view.router` is assigned, and cleans up subscribers on disconnect.
+- **Universal Element Directives**: `routerLink`, `activeRoute`, and `requestContext` now accept standard `Element` targets (supporting SVG anchors `SVGAElement` and custom elements).
+
+## 2.1.0 (2026-11-09)
+
+### Added
+
+- **Declarative Directives (`routerLink` & `activeRoute`)**:
+  - `routerLink(target, options?)`: Lit directive for `<a>` tags with automatic `href` resolution, safe click interception (supporting modifier keys and new windows), active class toggling, and automatic `aria-current="page"` accessibility. Automatically resolves `Router` via DOM context if not explicitly provided.
+  - `activeRoute(target, options?)`: Lit directive for any HTML element (e.g. `<li>`, `<button>`) to reflect active route state with custom classes and `aria-current`.
+- **Route Data Loaders (`RouteDefinition.loader`)**:
+  - Async data prefetching running concurrently during route navigation without request waterfalls.
+  - Passes preloaded data to `router.current.data`, `router.getRouteData(selector?)`, `routeContext.data`, and `element.data`.
+  - Integrated with `route-loading-start` and `route-loading-end` events.
+- **Component & Dynamic Leave Guards**:
+  - Component lifecycle hook: rendered custom elements can declare `beforeRouteLeave(detail)` to intercept leaving transitions (e.g., confirming unsaved changes before discarding).
+  - `router.registerLeaveGuard(guard)`: dynamically register and unregister global or situational leave guards with automatic URL restoration if blocked.
+- **W3C Context Protocol Integration**:
+  - Built-in zero-dependency support for the W3C Community Group Context Protocol.
+  - Exported `routerContext` and `routeContext` tokens, 100% wire-compatible with `@lit/context` and native DOM `context-request` events.
+  - Exported `requestContext` helper for non-decorator DOM consumption.
+- **Active Route Matching (`router.isActive`)**:
+  - Supports prefix matching, exact matching (`exact: true`), named routes, route selectors with `id`, params matching, query params, and hash fragments.
+
+## 2.0.0 (2026-11-09)
 
 ### Removed
 

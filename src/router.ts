@@ -1,4 +1,5 @@
 export {
+  collectLeavingRoutes,
   type NavigationDirection,
   type ReadonlyRouteDefinition,
   type RouteComponentFactory,
@@ -10,8 +11,10 @@ export {
   type RouteGuardRedirect,
   type RouteGuardResult,
   type RouteInsertOptions,
+  type RouteIsActiveOptions,
   type RouteLeaveGuard,
   type RouteLoadContext,
+  type RouteLoader,
   type RouteLoadingDetail,
   type RouteLocation,
   type RouteMeta,
@@ -33,6 +36,29 @@ export {
   type RouterSlotDetail,
   type RouterSlotDetailJson,
   type RouteSelector,
+  type RouteTarget,
   type RouteTreeChangeDetail,
 } from "./router-core.ts";
 export { DEFAULT_CHILD_SLOT, RouterView } from "./router-view.ts";
+export {
+  type Context,
+  type ContextCallback,
+  type ContextRequest,
+  ContextRequestEvent,
+  contextRequestEventName,
+  type ContextType,
+  type CurrentRouteContext,
+  requestContext,
+  routeContext,
+  type RouteContextKey,
+  routerContext,
+  type RouterContext,
+  type RouterContextKey,
+  type UnknownContext,
+} from "./context.ts";
+export {
+  activeRoute,
+  type ActiveRouteDirectiveOptions,
+  routerLink,
+  type RouterLinkDirectiveOptions,
+} from "./directives.ts";

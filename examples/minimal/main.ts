@@ -231,8 +231,7 @@ export class MinimalRouterExample extends LitElement {
   }
 
   private readonly onRouteChange = (event: CustomEvent<RouterChangeDetail>) => {
-    this.committedUrl =
-      `${event.detail.pathname}${event.detail.search}${event.detail.hash}`;
+    this.committedUrl = `${event.detail.pathname}${event.detail.search}${event.detail.hash}`;
     this.localPath = event.detail.localPathname;
     this.direction = event.detail.direction;
     this.pushEventLog(
@@ -285,9 +284,10 @@ export class MinimalRouterExample extends LitElement {
   };
 
   private readonly onRouteError = (event: CustomEvent<RouteErrorDetail>) => {
-    const message = event.detail.error instanceof Error
-      ? event.detail.error.message
-      : String(event.detail.error);
+    const message =
+      event.detail.error instanceof Error
+        ? event.detail.error.message
+        : String(event.detail.error);
     this.pushEventLog(
       "route-error",
       `${event.detail.phase}: ${message}`,
@@ -298,11 +298,7 @@ export class MinimalRouterExample extends LitElement {
   private readonly onRouteNotFound = (
     event: CustomEvent<RouteNotFoundDetail>,
   ) => {
-    this.pushEventLog(
-      "route-not-found",
-      event.detail.url.pathname,
-      "error",
-    );
+    this.pushEventLog("route-not-found", event.detail.url.pathname, "error");
   };
 
   private toggleLabAccess(): void {
@@ -354,14 +350,16 @@ export class MinimalRouterExample extends LitElement {
   }
 
   render() {
-    const editorGuardHint = this.localPath === "/editor" && this.editorDirty
-      ? html`
-        <p class="hint danger">
-          Editor 当前是 dirty。试着点其他链接，导航会被 <code>beforeLeave</code>
-          阻断，直到你把它标记为 clean。
-        </p>
-      `
-      : nothing;
+    const editorGuardHint =
+      this.localPath === "/editor" && this.editorDirty
+        ? html`
+            <p class="hint danger">
+              Editor 当前是 dirty。试着点其他链接，导航会被
+              <code>beforeLeave</code>
+              阻断，直到你把它标记为 clean。
+            </p>
+          `
+        : nothing;
 
     return html`
       <main class="shell">
@@ -369,8 +367,9 @@ export class MinimalRouterExample extends LitElement {
           <p class="eyebrow">@elelcode/lit-router</p>
           <h1>Minimal Example, but not Minimal Capability</h1>
           <p class="lede">
-            这份 playground 把最重要的生产特性放在同一页里：懒加载、leave guard、 动态
-            route tree、错误 fallback、方向感知，以及显式 RouteContext。
+            这份 playground 把最重要的生产特性放在同一页里：懒加载、leave
+            guard、 动态 route tree、错误 fallback、方向感知，以及显式
+            RouteContext。
           </p>
         </header>
 
@@ -383,9 +382,9 @@ export class MinimalRouterExample extends LitElement {
           </a>
           <a
             href="${BASE_PATH}/inbox"
-            aria-current="${this.isActive("/inbox", { exact: false })
-              ? "page"
-              : nothing}"
+            aria-current="${
+              this.isActive("/inbox", { exact: false }) ? "page" : nothing
+            }"
           >
             Inbox
           </a>
@@ -401,16 +400,18 @@ export class MinimalRouterExample extends LitElement {
           >
             Guarded Lab
           </a>
-          ${this.reportsInstalled
-            ? html`
-              <a
-                href="${BASE_PATH}/reports"
-                aria-current="${this.isActive("/reports") ? "page" : nothing}"
-              >
-                Reports
-              </a>
-            `
-            : nothing}
+          ${
+            this.reportsInstalled
+              ? html`
+                  <a
+                    href="${BASE_PATH}/reports"
+                    aria-current="${this.isActive("/reports") ? "page" : nothing}"
+                  >
+                    Reports
+                  </a>
+                `
+              : nothing
+          }
           <a href="${this.messageHref}">Message 42</a>
           <a href="${BASE_PATH}/broken">Broken Route</a>
           <a href="${BASE_PATH}/missing">Missing Route</a>
@@ -421,9 +422,11 @@ export class MinimalRouterExample extends LitElement {
             ${this.editorDirty ? "Mark Editor Clean" : "Mark Editor Dirty"}
           </button>
           <button type="button" @click="${this.toggleReportsRoute}">
-            ${this.reportsInstalled
-              ? "Remove Reports Route"
-              : "Install Reports Route"}
+            ${
+              this.reportsInstalled
+                ? "Remove Reports Route"
+                : "Install Reports Route"
+            }
           </button>
         </section>
 
@@ -448,9 +451,9 @@ export class MinimalRouterExample extends LitElement {
           </article>
           <article class="status-card">
             <span class="label">Reports Plugin</span>
-            <strong>${this.reportsInstalled
-              ? "installed"
-              : "not installed"}</strong>
+            <strong
+              >${this.reportsInstalled ? "installed" : "not installed"}</strong
+            >
           </article>
           <article class="status-card">
             <span class="label">Editor Dirty</span>
@@ -468,13 +471,13 @@ export class MinimalRouterExample extends LitElement {
             <span class="badge">${this.eventLog.length} entries</span>
           </div>
           <ol>
-            ${this.eventLog.map((line) =>
-              html`
+            ${this.eventLog.map(
+              (line) => html`
                 <li class="tone-${line.tone}">
                   <strong>${line.label}</strong>
                   <span>${line.message}</span>
                 </li>
-              `
+              `,
             )}
           </ol>
         </section>
@@ -486,16 +489,20 @@ export class MinimalRouterExample extends LitElement {
         >
           <section slot="404" class="custom-slot stack">
             <p class="slot-eyebrow">Custom 404 Slot</p>
-            <h2 data-route-focus tabindex="-1">This example route does not exist.</h2>
+            <h2 data-route-focus tabindex="-1">
+              This example route does not exist.
+            </h2>
             <p>
-              这里展示的是壳层自定义 slot，不是默认 fallback 模板。回到 Home 或 Inbox
-              继续试其它能力。
+              这里展示的是壳层自定义 slot，不是默认 fallback 模板。回到 Home 或
+              Inbox 继续试其它能力。
             </p>
           </section>
 
           <section slot="error" class="custom-slot stack danger-slot">
             <p class="slot-eyebrow">Custom Error Slot</p>
-            <h2 data-route-focus tabindex="-1">The route failed before commit.</h2>
+            <h2 data-route-focus tabindex="-1">
+              The route failed before commit.
+            </h2>
             <p>
               点 Broken Route 时会命中这里。日志里会保留 load phase 的错误信息。
             </p>
@@ -527,10 +534,10 @@ export class MinimalRouterExample extends LitElement {
           transparent 30%
         ),
         radial-gradient(
-        circle at bottom right,
-        rgba(23, 107, 93, 0.12),
-        transparent 28%
-      ),
+          circle at bottom right,
+          rgba(23, 107, 93, 0.12),
+          transparent 28%
+        ),
         linear-gradient(180deg, #faf6ef 0%, #f0e6d9 100%);
       color: var(--ink);
       font-family: "Avenir Next", "Segoe UI", sans-serif;
@@ -614,7 +621,10 @@ export class MinimalRouterExample extends LitElement {
       color: var(--ink);
       text-decoration: none;
       cursor: pointer;
-      font: 600 0.94rem/1 "Avenir Next", "Segoe UI", sans-serif;
+      font:
+        600 0.94rem/1 "Avenir Next",
+        "Segoe UI",
+        sans-serif;
       transition:
         transform 160ms ease,
         background-color 160ms ease,

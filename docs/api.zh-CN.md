@@ -14,9 +14,18 @@ import "@elelcode/lit-router";
 
 ```ts
 import {
+  activeRoute,
+  type ActiveRouteDirectiveOptions,
+  type Context,
+  type ContextCallback,
+  type ContextRequest,
+  type ContextRequestEvent,
+  contextRequestEventName,
   DEFAULT_CHILD_SLOT,
   type NavigationDirection,
   type ReadonlyRouteDefinition,
+  requestContext,
+  routeContext,
   type RouteComponentFactory,
   type RouteContext,
   type RouteContextReceiver,
@@ -26,8 +35,13 @@ import {
   type RouteGuardRedirect,
   type RouteGuardResult,
   type RouteInsertOptions,
+  type RouteIsActiveOptions,
   type RouteLeaveGuard,
+  routerContext,
+  routerLink,
+  type RouterLinkDirectiveOptions,
   type RouteLoadContext,
+  type RouteLoader,
   type RouteLoadingDetail,
   type RouteLocation,
   type RouteMeta,
@@ -50,7 +64,9 @@ import {
   type RouterSlotDetailJson,
   RouterView,
   type RouteSelector,
+  type RouteTarget,
   type RouteTreeChangeDetail,
+  type UnknownContext,
 } from "@elelcode/lit-router";
 ```
 
@@ -168,12 +184,13 @@ router.insertRoutes([
   { path: "reports", id: "reports-plugin", component: "reports-page" },
 ]);
 
-router.insertRoutes([
-  { path: "audit", id: "settings-audit", component: "audit-page" },
-], {
-  parentId: "settings-shell",
-  index: 1,
-});
+router.insertRoutes(
+  [{ path: "audit", id: "settings-audit", component: "audit-page" }],
+  {
+    parentId: "settings-shell",
+    index: 1,
+  },
+);
 ```
 
 `RouteInsertOptions`：
@@ -211,11 +228,13 @@ router.removeRoute({ id: "reports-plugin" });
 
 ```ts
 router.batchRouteUpdates(() => {
-  router.insertRoutes([{
-    path: "alpha",
-    name: "alpha",
-    component: "alpha-page",
-  }]);
+  router.insertRoutes([
+    {
+      path: "alpha",
+      name: "alpha",
+      component: "alpha-page",
+    },
+  ]);
   router.insertRoutes([{ path: "beta", name: "beta", component: "beta-page" }]);
 });
 ```
@@ -295,6 +314,75 @@ const attrs = router.linkAttributes(
 ```
 
 `#section` 这类普通文档片段不会被路由接管。
+
+#### `router.isActive(target, options?): boolean`
+
+检测目标路由是否处于激活状态。支持路径前缀匹配、精确全路径匹配、具名路由名称、RouteSelector（按 `id` 查找）、动态参数（params）、查询参数（query）及哈希片段（hash）。
+
+```ts
+// 路径前缀匹配：/users、/users/42 等均返回 true
+router.isActive("/users");
+
+// 精确全路径匹配：仅 /users 时返回 true
+router.isActive("/users", { exact: true });
+
+// 具名路由匹配
+router.isActive("user-detail");
+
+// 按路由配置的 id 匹配
+router.isActive({ id: "user-profile-id" });
+
+// 包含参数、查询参数与哈希的完整匹配
+router.isActive({
+  name: "user-detail",
+  params: { id: "42" },
+  query: { tab: "activity" },
+  hash: "timeline",
+});
+
+// 或者将 query/hash 传给 options
+router.isActive("/users/42", {
+  query: { tab: "activity" },
+  hash: "timeline",
+});
+```
+
+`options` 选项说明：
+
+- `exact?: boolean`：是否要求精确匹配而非前缀匹配。
+- `params?: Record<string, RouteParamValue>`：要求当前路由参数匹配。
+- `query?: RouteQueryInit`：要求当前 URL 查询参数匹配。
+- `hash?: string`：要求当前 URL 哈希片段匹配。
+
+#### `router.registerLeaveGuard(guard): () => void`
+
+动态注册一个全局或临时离开守卫。当用户尝试离开当前路由分支时触发。若守卫返回 `false` 或 Promise 决议为 `false`，导航将被拦截，浏览器地址栏与历史记录将自动回退。
+
+调用返回值函数即可注销该守卫。
+
+```ts
+const unregister = router.registerLeaveGuard((detail) => {
+  if (hasUnsavedChanges) {
+    return confirm("页面有未保存的内容，确认离开吗？");
+  }
+  return true;
+});
+
+// 完成后注销：
+unregister();
+```
+
+#### `router.getRouteData<T>(selector?): T | undefined`
+
+获取由路由 `loader` 预取加载的数据。若省略 `selector`，默认返回当前激活的叶子路由预取数据。若提供 `selector`（路由名称或 `RouteSelector`），则返回对应具体路由分支的数据。
+
+```ts
+// 获取当前叶子路由预取数据
+const userData = router.getRouteData<UserData>();
+
+// 获取指定父级布局路由预取数据
+const shellData = router.getRouteData<ShellData>("settings-shell");
+```
 
 ### 事件
 
@@ -616,9 +704,7 @@ interface RouterLinkAttributes {
 
 ```ts
 type RouteGuardRedirect =
-  | string
-  | URL
-  | { to: string | URL; replace?: boolean };
+  string | URL | { to: string | URL; replace?: boolean };
 
 type RouteGuardResult = boolean | void | RouteGuardRedirect;
 ```
@@ -639,12 +725,8 @@ type RouteGuard = (
   | URL
   | { to: string | URL; replace?: boolean }
   | Promise<
-    | boolean
-    | void
-    | string
-    | URL
-    | { to: string | URL; replace?: boolean }
-  >;
+      boolean | void | string | URL | { to: string | URL; replace?: boolean }
+    >;
 ```
 
 执行顺序：
@@ -669,12 +751,8 @@ type RouteLeaveGuard = (
   | URL
   | { to: string | URL; replace?: boolean }
   | Promise<
-    | boolean
-    | void
-    | string
-    | URL
-    | { to: string | URL; replace?: boolean }
-  >;
+      boolean | void | string | URL | { to: string | URL; replace?: boolean }
+    >;
 ```
 
 执行顺序：
@@ -687,10 +765,27 @@ type RouteLeaveGuard = (
 ```ts
 interface RouteLoadContext {
   signal: AbortSignal;
+  router: Router;
+  pathname: string;
+  localPathname: string;
+  params: Record<string, string>;
+  query: URLSearchParams;
+  hash: string;
+  url: URL;
 }
 ```
 
-`load()` 可以使用 `signal` 在更新的导航取代当前导航时取消自己的异步工作。
+`load()` 与 `loader` 可以使用 `signal` 在更新的导航取代当前导航时取消自己的异步工作。
+
+### `RouteLoader<TData>`
+
+```ts
+type RouteLoader<TData = unknown> = (
+  context: RouteLoadContext,
+) => Promise<TData> | TData;
+```
+
+配置于 `RouteDefinition.loader`。在导航进入时与组件异步加载并发执行。预取的数据可直接通过 `router.current.data`、`router.getRouteData()`、`routeContext.data` 及 `element.data` 消费。
 
 ## RouteContext 协议
 
@@ -715,11 +810,143 @@ interface RouteContext {
   params: Record<string, string>;
   slot: string;
   branch: RouteDefinition[];
+  data?: unknown;
 }
 ```
 
 其中 `detail.query` 是 `URLSearchParams`。`slot` 表示当前组件被投影到的
-slot，`branch` 表示该 slot 对应的匹配分支。
+slot，`branch` 表示该 slot 对应的匹配分支。`data` 包含当前路由 `loader` 预取的数据。
+
+若所渲染的组件类声明了 `data` 属性，`<router-view>` 也会自动将其同步为 `element.data = context.data`。
+
+### 组件级离开守卫契约 (`beforeRouteLeave`)
+
+挂载在 `<router-view>` 中的任意自定义元素均可实现 `beforeRouteLeave` 方法：
+
+```ts
+class EditForm extends LitElement {
+  hasUnsavedChanges = true;
+
+  beforeRouteLeave(detail: {
+    to: RouterChangeDetail | null;
+    router: Router;
+    signal: AbortSignal;
+  }): boolean | Promise<boolean> {
+    if (this.hasUnsavedChanges) {
+      return confirm("表单有未保存的更改，确认放弃并离开吗？");
+    }
+    return true;
+  }
+}
+```
+
+当发生切页离开时，`<router-view>` 自动探测即将卸载的分支上的组件是否有 `beforeRouteLeave` 钩子。返回 `false` 即可中断导航并恢复地址栏。
+
+## 声明式模板指令
+
+`@elelcode/lit-router` 为 Lit 模板提供了现代、轻量、高可用的声明式指令：
+
+### `routerLink(targetOrRouter, targetOrOptions?, options?)`
+
+直接作用于 `<a>` 标签。自动管理 `href`、链接点击拦截（兼容 Ctrl/Cmd 新标签页、外部链接及下载链接）、激活样式类切换与 `aria-current="page"`。
+
+```ts
+import { html, LitElement } from "lit";
+import { routerLink } from "@elelcode/lit-router";
+
+// 在 <router-view> 树内部使用时，通过上下文协议自动解析 router 实例：
+html`
+  <a ${routerLink("/users")}>用户列表</a>
+  <a ${routerLink("/users/42", { activeClass: "active", exact: true })}
+    >用户 42</a
+  >
+  <a ${routerLink({ name: "settings", query: { tab: "profile" } })}>设置</a>
+`;
+
+// 显式传入 router 实例：
+html`
+  <a ${routerLink(router, "/dashboard", { activeClass: "nav-active" })}>
+    控制台
+  </a>
+`;
+```
+
+`RouterLinkDirectiveOptions` 选项：
+
+- `activeClass?: string`：目标路由激活时添加的 CSS 类名（默认 `"active"`）。
+- `exact?: boolean`：是否要求精确匹配。
+- `replace?: boolean`：使用替换模式（replaceState）导航。
+- `ariaCurrent?: string`：激活时设置的 `aria-current` 属性值（默认 `"page"`）。
+- `params?: Record<string, RouteParamValue>`：具名路由的路径参数。
+- `query?: RouteQueryInit`：查询参数。
+- `hash?: string`：哈希片段。
+
+### `activeRoute(targetOrRouter, targetOrOptions?, options?)`
+
+直接作用于任意 HTML 元素（如 `<li>`、`<button>` 或 `<div>`）以感知路由激活状态，并自动同步 `activeClass` 与 `aria-current`。
+
+```ts
+import { activeRoute } from "@elelcode/lit-router";
+
+html`
+  <li ${activeRoute("/dashboard", { activeClass: "tab-active" })}>
+    <a href="/dashboard">控制台</a>
+  </li>
+`;
+```
+
+## W3C Context 协议支持
+
+`@elelcode/lit-router` 原生遵循 [W3C Community Group Context Protocol](https://github.com/webcomponents-cg/community-protocols/blob/main/proposals/context.md)，**零运行时外部依赖**，与 `@lit/context` 及原生 Web Components 生态 100% 协议互通。
+
+### 导出标识符
+
+- `routerContext`：当前全局 `Router` 实例上下文。
+- `routeContext`：当前激活分支的 `RouteContext` 上下文。
+
+### 配合 `@lit/context` 使用
+
+```ts
+import { LitElement, html } from "lit";
+import { consume } from "@lit/context";
+import {
+  routerContext,
+  routeContext,
+  type Router,
+  type RouteContext,
+} from "@elelcode/lit-router";
+
+class MyDeepChildComponent extends LitElement {
+  @consume({ context: routerContext, subscribe: true })
+  router?: Router;
+
+  @consume({ context: routeContext, subscribe: true })
+  route?: RouteContext;
+
+  render() {
+    return html`
+      <p>当前路径: ${this.route?.detail.localPathname}</p>
+      <button @click=${() => this.router?.push("/")}>回到首页</button>
+    `;
+  }
+}
+```
+
+### 脱离 `@lit/context` 使用 (`requestContext`)
+
+```ts
+import { requestContext, routerContext } from "@elelcode/lit-router";
+
+// 在 <router-view> 树下的任意 DOM 元素中：
+const unsubscribe = requestContext(
+  element,
+  routerContext,
+  (router) => {
+    console.log("获取到 Router 实例:", router);
+  },
+  true /* 响应后续变化订阅 */,
+);
+```
 
 ## 事件详情类型
 
@@ -738,14 +965,19 @@ interface RouterChangeDetail {
   leaf?: RouteDefinition;
   slotBranches?: Record<string, RouteDefinition[]>;
   slotParams?: Record<string, Record<string, string>>;
-  slots?: Record<string, {
-    branch: RouteDefinition[];
-    leaf?: RouteDefinition;
-    params: Record<string, string>;
-  }>;
+  slots?: Record<
+    string,
+    {
+      branch: RouteDefinition[];
+      leaf?: RouteDefinition;
+      params: Record<string, string>;
+    }
+  >;
   url: URL;
   navigationKey: string;
   direction: "forward" | "backward" | "none";
+  data?: unknown;
+  routeData?: Map<RouteDefinition, unknown>;
   toJSON?: () => RouterChangeDetailJson;
 }
 ```
@@ -756,6 +988,8 @@ interface RouterChangeDetail {
 - `localPathname`：相对 `basePath` 的本地 pathname
 - `branch`：从根到叶的命中分支
 - `leaf`：命中的叶子路由
+- `data`：叶子路由 `loader` 预取加载的数据（若有）
+- `routeData`：匹配分支中所有路由预取数据的映射表
 - `slotBranches`：非主 slot 的命中分支，按 slot 名索引
 - `slotParams`：每条非主 slot 分支对应的 params
 - `slots`：包含主 `"route-child"` slot 在内的 slot 详情索引

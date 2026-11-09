@@ -14,12 +14,18 @@ export type RouteQueryValue = string | number | boolean;
 export type RouteQueryInit =
   | string
   | URLSearchParams
-  | Record<
-    string,
-    RouteQueryValue | RouteQueryValue[] | null | undefined
-  >;
+  | Record<string, RouteQueryValue | RouteQueryValue[] | null | undefined>;
 export interface RouteLocation {
   name: string;
+  params?: RouteParamsInput;
+  query?: RouteQueryInit;
+  hash?: string;
+}
+
+export type RouteTarget = string | URL | RouteLocation;
+
+export interface RouteIsActiveOptions {
+  exact?: boolean;
   params?: RouteParamsInput;
   query?: RouteQueryInit;
   hash?: string;
@@ -44,9 +50,9 @@ export type RouteGuardRedirect =
   | string
   | URL
   | {
-    to: string | URL;
-    replace?: boolean;
-  };
+      to: string | URL;
+      replace?: boolean;
+    };
 
 export type RouteGuardResult = boolean | void | RouteGuardRedirect;
 export type RouteGuard = (
@@ -66,11 +72,22 @@ export type RouteLeaveGuard = (
 
 export interface RouteLoadContext {
   signal: AbortSignal;
+  router?: Router;
+  pathname?: string;
+  localPathname?: string;
+  params?: Record<string, string>;
+  query?: URLSearchParams;
+  hash?: string;
+  url?: URL;
 }
+
+export type RouteLoader<T = unknown> = (
+  context: RouteLoadContext,
+) => MaybePromise<T>;
 
 export type RouteMeta = Record<string, unknown>;
 
-export interface RouteDefinition {
+export interface RouteDefinition<TData = unknown> {
   id?: string;
   name?: string;
   path: string;
@@ -89,6 +106,7 @@ export interface RouteDefinition {
   guard?: RouteGuard;
   beforeLeave?: RouteLeaveGuard;
   load?: (context?: RouteLoadContext) => Promise<unknown>;
+  loader?: RouteLoader<TData>;
   meta?: RouteMeta;
   props?: Record<string, unknown>;
 }
@@ -190,6 +208,8 @@ export interface RouterChangeDetail {
   url: URL;
   navigationKey: string;
   direction: NavigationDirection;
+  routeData?: Map<RouteDefinition, unknown>;
+  data?: unknown;
   toJSON?: () => RouterChangeDetailJson;
 }
 
@@ -221,18 +241,21 @@ export interface RouterChangeDetailJson {
   url: string;
   navigationKey: string;
   direction: NavigationDirection;
+  data?: unknown;
 }
 
-export interface RouteContext {
+export interface RouteContext<TData = unknown> {
   detail: RouterChangeDetail;
   params: Record<string, string>;
   slot: string;
   branch: RouteDefinition[];
+  data?: TData;
 }
 
-export interface RouteContextReceiver {
-  routeContext?: RouteContext;
-  setRouteContext?: (context: RouteContext) => void;
+export interface RouteContextReceiver<TData = unknown> {
+  routeContext?: RouteContext<TData>;
+  setRouteContext?: (context: RouteContext<TData>) => void;
+  data?: TData;
 }
 
 export interface RouteNotFoundDetail {
@@ -297,9 +320,10 @@ export type RouterEventListener<K extends keyof RouterEventMap> = (
   event: RouterEvent<K>,
 ) => void;
 
-function resolveRouteSelector(
-  selector: string | RouteSelector,
-): { type: "id" | "name"; value: string } {
+function resolveRouteSelector(selector: string | RouteSelector): {
+  type: "id" | "name";
+  value: string;
+} {
   if (typeof selector === "string") {
     return { type: "name", value: normalizeRouteName(selector) };
   }
@@ -474,9 +498,10 @@ interface PendingRouteLoad {
   signal: AbortSignal;
 }
 
-function routeSegmentRange(
-  path: string,
-): { minSegments: number; maxSegments: number } {
+function routeSegmentRange(path: string): {
+  minSegments: number;
+  maxSegments: number;
+} {
   const normalizedPath = normalizeRoutePath(path);
   if (normalizedPath === ROOT_PATH) {
     return { minSegments: 0, maxSegments: 0 };
@@ -552,10 +577,12 @@ function execPatternMatches(
   const normalized = route.normalizedPath;
 
   if (normalized === "*") {
-    return [{
-      consumedCount: remainingSegments.length,
-      params: { "*": remainingSegments.join("/") },
-    }];
+    return [
+      {
+        consumedCount: remainingSegments.length,
+        params: { "*": remainingSegments.join("/") },
+      },
+    ];
   }
 
   if (!route.pattern) {
@@ -642,10 +669,12 @@ function isSameDetail(
 
     const currentBranch = currentSlots[slotName] ?? [];
     const nextBranch = nextSlots[slotName] ?? [];
-    return currentBranch.length === nextBranch.length &&
-      currentBranch.every((route, branchIndex) =>
-        route === nextBranch[branchIndex]
-      );
+    return (
+      currentBranch.length === nextBranch.length &&
+      currentBranch.every(
+        (route, branchIndex) => route === nextBranch[branchIndex],
+      )
+    );
   });
 }
 
@@ -687,10 +716,9 @@ function queryToJson(
       return;
     }
 
-    output[key] = Array.isArray(existing) ? [...existing, value] : [
-      existing,
-      value,
-    ];
+    output[key] = Array.isArray(existing)
+      ? [...existing, value]
+      : [existing, value];
   });
   return output;
 }
@@ -712,6 +740,7 @@ function detailToJSON(this: RouterChangeDetail): RouterChangeDetailJson {
     url: this.url.href,
     navigationKey: this.navigationKey,
     direction: this.direction,
+    data: this.data,
   };
 }
 
@@ -739,7 +768,7 @@ function collectMatchedRoutes(detail: RouterChangeDetail): RouteDefinition[] {
   return routes;
 }
 
-function collectLeavingRoutes(
+export function collectLeavingRoutes(
   from: RouterChangeDetail,
   to: RouterChangeDetail | null,
 ): RouteDefinition[] {
@@ -881,7 +910,7 @@ function routeSpecificity(path: string): number[] {
   }
 
   return splitSegments(normalizedPath).map((segment) =>
-    segmentSpecificity(segment)
+    segmentSpecificity(segment),
   );
 }
 
@@ -889,18 +918,17 @@ function compareRouteSpecificity(
   left: CompiledRouteDefinition,
   right: CompiledRouteDefinition,
 ): number {
-  const maxLength = Math.max(
-    left.specificity.length,
-    right.specificity.length,
-  );
+  const maxLength = Math.max(left.specificity.length, right.specificity.length);
 
   for (let index = 0; index < maxLength; index += 1) {
-    const leftScore = index < left.specificity.length
-      ? left.specificity[index]
-      : EXACT_PATH_END_SPECIFICITY;
-    const rightScore = index < right.specificity.length
-      ? right.specificity[index]
-      : EXACT_PATH_END_SPECIFICITY;
+    const leftScore =
+      index < left.specificity.length
+        ? left.specificity[index]
+        : EXACT_PATH_END_SPECIFICITY;
+    const rightScore =
+      index < right.specificity.length
+        ? right.specificity[index]
+        : EXACT_PATH_END_SPECIFICITY;
     if (leftScore !== rightScore) {
       return rightScore - leftScore;
     }
@@ -939,9 +967,10 @@ function buildCompiledRoutes(
     return {
       route,
       normalizedPath,
-      pattern: normalizedPath === "*"
-        ? null
-        : createPattern(normalizedPath, routePatternCache),
+      pattern:
+        normalizedPath === "*"
+          ? null
+          : createPattern(normalizedPath, routePatternCache),
       children,
       childrenBySlot: groupBySlot(children),
       minSegments,
@@ -1027,7 +1056,7 @@ function removeNamedRouteFromTree(
   name: string,
 ): boolean {
   const directIndex = routes.findIndex((route) =>
-    route.name ? normalizeRouteName(route.name) === name : false
+    route.name ? normalizeRouteName(route.name) === name : false,
   );
   if (directIndex >= 0) {
     routes.splice(directIndex, 1);
@@ -1055,7 +1084,7 @@ function removeRouteByIdFromTree(
   id: string,
 ): boolean {
   const directIndex = routes.findIndex((route) =>
-    route.id ? normalizeRouteId(route.id) === id : false
+    route.id ? normalizeRouteId(route.id) === id : false,
   );
   if (directIndex >= 0) {
     routes.splice(directIndex, 1);
@@ -1102,10 +1131,7 @@ function expandSplatSegments(
     .map((segment) => encodeURIComponent(segment));
 }
 
-function fillRouteSegment(
-  segment: string,
-  params: RouteParamsInput,
-): string[] {
+function fillRouteSegment(segment: string, params: RouteParamsInput): string[] {
   if (segment === "*") {
     return expandSplatSegments(params["*"]);
   }
@@ -1125,7 +1151,8 @@ function fillRouteSegment(
 
     output += segment.slice(lastIndex, match.index);
     if (
-      modifier === "?" && (params[key] === null || params[key] === undefined)
+      modifier === "?" &&
+      (params[key] === null || params[key] === undefined)
     ) {
       lastIndex = (match.index ?? 0) + token.length;
       continue;
@@ -1162,32 +1189,36 @@ function buildLocalPathname(
   return segments.length ? `/${segments.join("/")}` : ROOT_PATH;
 }
 
-function createSearchString(query?: RouteQueryInit): string {
+function toSearchParams(query?: RouteQueryInit): URLSearchParams {
   if (!query) {
-    return "";
+    return new URLSearchParams();
   }
 
-  const params = typeof query === "string"
-    ? new URLSearchParams(query.startsWith("?") ? query.slice(1) : query)
-    : query instanceof URLSearchParams
-    ? new URLSearchParams(query)
-    : (() => {
-      const searchParams = new URLSearchParams();
+  if (typeof query === "string") {
+    return new URLSearchParams(query.startsWith("?") ? query.slice(1) : query);
+  }
 
-      for (const [key, rawValue] of Object.entries(query)) {
-        if (rawValue === null || rawValue === undefined) {
-          continue;
-        }
+  if (query instanceof URLSearchParams) {
+    return new URLSearchParams(query);
+  }
 
-        const values = Array.isArray(rawValue) ? rawValue : [rawValue];
-        for (const value of values) {
-          searchParams.append(key, String(value));
-        }
-      }
+  const searchParams = new URLSearchParams();
+  for (const [key, rawValue] of Object.entries(query)) {
+    if (rawValue === null || rawValue === undefined) {
+      continue;
+    }
 
-      return searchParams;
-    })();
+    const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+    for (const value of values) {
+      searchParams.append(key, String(value));
+    }
+  }
 
+  return searchParams;
+}
+
+function createSearchString(query?: RouteQueryInit): string {
+  const params = toSearchParams(query);
   const search = params.toString();
   return search ? `?${search}` : "";
 }
@@ -1240,17 +1271,13 @@ function matchSlotRoutes(
       const nextRemaining = remainingSegments.slice(match.consumedCount);
       const branch = [...parentRecords, record];
       const childResults = route.children.length
-        ? matchSlotRoutes(
-          route.children,
-          nextRemaining,
-          branch,
-          record.params,
-        )
+        ? matchSlotRoutes(route.children, nextRemaining, branch, record.params)
         : {};
       const defaultChildBranch = childResults[DEFAULT_CHILD_SLOT];
-      const terminalMatch = nextRemaining.length === 0 ||
-        normalizedPath === "*";
-      const acceptedBranch = defaultChildBranch ??
+      const terminalMatch =
+        nextRemaining.length === 0 || normalizedPath === "*";
+      const acceptedBranch =
+        defaultChildBranch ??
         (terminalMatch ? { records: branch, params: record.params } : null);
 
       if (!acceptedBranch) {
@@ -1320,6 +1347,7 @@ export class Router extends EventTarget {
   private pendingRouteTreeChange = false;
   private lastRouteErrorDetail?: RouteErrorDetail;
   private lastRouteNotFoundDetail?: RouteNotFoundDetail;
+  private readonly dynamicLeaveGuards = new Set<RouteLeaveGuard>();
 
   addEventListener<K extends keyof RouterEventMap>(
     type: K,
@@ -1374,8 +1402,7 @@ export class Router extends EventTarget {
   private readonly onDocumentClick = (event: MouseEvent) => {
     const path = event.composedPath();
     const anchor = path.find((item) => this.isNavigableAnchor(item)) as
-      | Element
-      | undefined;
+      Element | undefined;
 
     if (!anchor) {
       return;
@@ -1394,8 +1421,21 @@ export class Router extends EventTarget {
       return;
     }
 
-    if (anchor.hasAttribute("download")) {
-      return;
+    // Check if anchor or any clicked child element should be ignored
+    for (const item of path) {
+      if (item instanceof Element) {
+        if (
+          item.hasAttribute("data-router-ignore") ||
+          item.hasAttribute("download") ||
+          item.hasAttribute("disabled") ||
+          item.getAttribute("aria-disabled") === "true"
+        ) {
+          return;
+        }
+      }
+      if (item === anchor) {
+        break;
+      }
     }
 
     const href = this.getAnchorHref(anchor);
@@ -1528,10 +1568,7 @@ export class Router extends EventTarget {
   }
 
   configure(
-    options: Pick<
-      RouterOptions,
-      "routes" | "basePath" | "beforeRoute"
-    >,
+    options: Pick<RouterOptions, "routes" | "basePath" | "beforeRoute">,
   ): void {
     if ("routes" in options) {
       this.routeTree = cloneRouteDefinitions(options.routes ?? []);
@@ -1608,9 +1645,10 @@ export class Router extends EventTarget {
 
   removeRoute(selector: string | RouteSelector): boolean {
     const resolvedSelector = resolveRouteSelector(selector);
-    const removed = resolvedSelector.type === "id"
-      ? removeRouteByIdFromTree(this.routeTree, resolvedSelector.value)
-      : removeNamedRouteFromTree(this.routeTree, resolvedSelector.value);
+    const removed =
+      resolvedSelector.type === "id"
+        ? removeRouteByIdFromTree(this.routeTree, resolvedSelector.value)
+        : removeNamedRouteFromTree(this.routeTree, resolvedSelector.value);
     if (!removed) {
       return false;
     }
@@ -1625,10 +1663,10 @@ export class Router extends EventTarget {
     const isOutermostBatch = this.routeMutationDepth === 0;
     const snapshot = isOutermostBatch
       ? {
-        routeTree: cloneRouteDefinitions(this.routeTree),
-        basePath: this.basePath,
-        beforeRoute: this.beforeRoute,
-      }
+          routeTree: cloneRouteDefinitions(this.routeTree),
+          basePath: this.basePath,
+          beforeRoute: this.beforeRoute,
+        }
       : undefined;
 
     this.routeMutationDepth += 1;
@@ -1689,17 +1727,220 @@ export class Router extends EventTarget {
     return this.resolveMatched(this.toRouteUrl({ name, ...options }));
   }
 
-  link(location: RouteLocation): string {
-    const url = this.toRouteUrl(location);
+  link(target: RouteTarget): string {
+    const url = this.toRouteUrl(target);
     return `${url.pathname}${url.search}${url.hash}`;
   }
 
   linkAttributes(
-    location: RouteLocation,
+    target: RouteTarget,
     options: RouterLinkOptions = {},
   ): RouterLinkAttributes {
-    const href = this.link(location);
+    const href = this.link(target);
     return options.replace ? { href, "data-router-replace": "" } : { href };
+  }
+
+  registerLeaveGuard(guard: RouteLeaveGuard): () => void {
+    this.dynamicLeaveGuards.add(guard);
+    return () => {
+      this.dynamicLeaveGuards.delete(guard);
+    };
+  }
+
+  isActive(
+    target: RouteTarget | RouteSelector,
+    options: RouteIsActiveOptions = {},
+  ): boolean {
+    if (this.current.branch.length === 0) {
+      return false;
+    }
+
+    const allBranches = detailBranches(this.current);
+
+    if (
+      typeof target === "object" &&
+      target !== null &&
+      !(target instanceof URL)
+    ) {
+      if ("id" in target && target.id) {
+        const id = normalizeRouteId(target.id);
+        const isMatch = options.exact
+          ? allBranches.some((b) => b[b.length - 1]?.id === id)
+          : allBranches.some((b) => b.some((r) => r.id === id));
+        if (!isMatch) {
+          return false;
+        }
+        return this.matchesParamsAndQuery(
+          options.params,
+          options.query,
+          options.hash,
+        );
+      }
+
+      if ("name" in target && target.name) {
+        const name = normalizeRouteName(target.name);
+        const isMatch = options.exact
+          ? allBranches.some((b) => b[b.length - 1]?.name === name)
+          : allBranches.some((b) => b.some((r) => r.name === name));
+        if (!isMatch) {
+          return false;
+        }
+        const location = target as RouteLocation;
+        const combinedParams = {
+          ...location.params,
+          ...options.params,
+        };
+        const combinedQuery = location.query ?? options.query;
+        const targetHash = location.hash ?? options.hash;
+        return this.matchesParamsAndQuery(
+          combinedParams,
+          combinedQuery,
+          targetHash,
+        );
+      }
+    }
+
+    if (
+      typeof target === "string" &&
+      !target.startsWith("/") &&
+      !target.startsWith(".") &&
+      !target.includes("/") &&
+      this.namedRoutes.has(normalizeRouteName(target))
+    ) {
+      const name = normalizeRouteName(target);
+      const isMatch = options.exact
+        ? allBranches.some((b) => b[b.length - 1]?.name === name)
+        : allBranches.some((b) => b.some((r) => r.name === name));
+      if (!isMatch) {
+        return false;
+      }
+      return this.matchesParamsAndQuery(
+        options.params,
+        options.query,
+        options.hash,
+      );
+    }
+
+    const targetUrl = this.toRouteUrl(target as RouteTarget);
+    const currentUrl = this.current.url;
+    const currentLocalPath = normalizePathname(this.current.localPathname);
+    const targetLocalPath =
+      stripBasePath(normalizePathname(targetUrl.pathname), this.basePath) ??
+      normalizePathname(targetUrl.pathname);
+
+    if (options.exact) {
+      if (currentLocalPath !== targetLocalPath) {
+        return false;
+      }
+    } else {
+      if (targetLocalPath === ROOT_PATH) {
+        if (currentLocalPath !== ROOT_PATH) {
+          return false;
+        }
+      } else {
+        const prefix = targetLocalPath.endsWith("/")
+          ? targetLocalPath
+          : `${targetLocalPath}/`;
+        if (
+          currentLocalPath !== targetLocalPath &&
+          !currentLocalPath.startsWith(prefix)
+        ) {
+          return false;
+        }
+      }
+    }
+
+    if (targetUrl.search) {
+      for (const [key, value] of targetUrl.searchParams) {
+        if (!currentUrl.searchParams.getAll(key).includes(value)) {
+          return false;
+        }
+      }
+    }
+
+    if (targetUrl.hash && targetUrl.hash !== currentUrl.hash) {
+      return false;
+    }
+
+    return this.matchesParamsAndQuery(
+      options.params,
+      options.query,
+      options.hash,
+    );
+  }
+
+  private matchesParamsAndQuery(
+    params?: RouteParamsInput,
+    query?: RouteQueryInit,
+    hash?: string,
+  ): boolean {
+    if (params) {
+      for (const [key, value] of Object.entries(params)) {
+        if (value === null || value === undefined) {
+          continue;
+        }
+        const valStr = String(value);
+        let paramMatched = this.current.params[key] === valStr;
+        if (!paramMatched && this.current.slotParams) {
+          for (const sp of Object.values(this.current.slotParams)) {
+            if (sp[key] === valStr) {
+              paramMatched = true;
+              break;
+            }
+          }
+        }
+        if (!paramMatched) {
+          return false;
+        }
+      }
+    }
+
+    if (query) {
+      const expectedQuery = toSearchParams(query);
+      for (const [key, val] of expectedQuery) {
+        if (!this.current.query.getAll(key).includes(val)) {
+          return false;
+        }
+      }
+    }
+
+    if (hash !== undefined && normalizeHash(hash) !== this.current.hash) {
+      return false;
+    }
+
+    return true;
+  }
+
+  getRouteData<T = unknown>(selector?: RouteSelector | string): T | undefined {
+    if (!selector) {
+      if (this.current.data !== undefined) {
+        return this.current.data as T;
+      }
+      if (this.current.routeData) {
+        for (let i = this.current.branch.length - 1; i >= 0; i--) {
+          const r = this.current.branch[i];
+          if (r && this.current.routeData.has(r)) {
+            return this.current.routeData.get(r) as T;
+          }
+        }
+      }
+      return undefined;
+    }
+
+    const { type, value } = resolveRouteSelector(selector);
+    let route: RouteDefinition | undefined;
+    for (const branch of detailBranches(this.current)) {
+      route = branch.find((r) =>
+        type === "id" ? r.id === value : r.name === value,
+      );
+      if (route) {
+        break;
+      }
+    }
+    if (route && this.current.routeData) {
+      return this.current.routeData.get(route) as T | undefined;
+    }
+    return undefined;
   }
 
   cloneRoutes(): RouteDefinition[] {
@@ -1748,7 +1989,11 @@ export class Router extends EventTarget {
   }
 
   private isNavigableAnchor(item: unknown): item is Element {
-    return item instanceof Element && item.tagName.toUpperCase() === "A";
+    return (
+      item instanceof Element &&
+      item.tagName.toUpperCase() === "A" &&
+      !item.hasAttribute("data-router-ignore")
+    );
   }
 
   private getAnchorHref(anchor: Element): string | null {
@@ -1774,13 +2019,11 @@ export class Router extends EventTarget {
     }
 
     const currentKey = this.current.navigationKey;
-    const keepThreshold = this.nextNavigationEntryOrder -
-      NAVIGATION_ENTRY_ORDER_PRUNE_TO;
+    const keepThreshold =
+      this.nextNavigationEntryOrder - NAVIGATION_ENTRY_ORDER_PRUNE_TO;
 
     for (const [key, order] of this.navigationEntryOrders) {
-      if (
-        this.navigationEntryOrders.size <= NAVIGATION_ENTRY_ORDER_PRUNE_TO
-      ) {
+      if (this.navigationEntryOrders.size <= NAVIGATION_ENTRY_ORDER_PRUNE_TO) {
         break;
       }
 
@@ -1846,8 +2089,8 @@ export class Router extends EventTarget {
       return "none";
     }
 
-    const nextNavigationKey = navigationKey ||
-      this.getCurrentNavigationEntryKey();
+    const nextNavigationKey =
+      navigationKey || this.getCurrentNavigationEntryKey();
     this.ensureNavigationEntryOrder(nextNavigationKey);
     return this.resolveNavigationDirection("none", nextNavigationKey);
   }
@@ -1868,15 +2111,41 @@ export class Router extends EventTarget {
     }
 
     if (typeof target === "string") {
+      if (
+        !target.startsWith("/") &&
+        !target.startsWith(".") &&
+        !target.includes("/") &&
+        !target.includes("?") &&
+        !target.includes("#") &&
+        this.namedRoutes.has(normalizeRouteName(target))
+      ) {
+        const branch = this.resolveNamedRouteBranch(normalizeRouteName(target));
+        const localPathname = buildLocalPathname(branch);
+        const pathname = this.withBasePath(localPathname);
+        return new URL(pathname, browserWindow().location.origin);
+      }
+      if (
+        target.startsWith("/") &&
+        this.basePath !== ROOT_PATH &&
+        !target.startsWith(this.basePath + "/") &&
+        target !== this.basePath
+      ) {
+        const targetUrl = new URL(target, browserWindow().location.origin);
+        const pathname = this.withBasePath(targetUrl.pathname);
+        return new URL(
+          `${pathname}${targetUrl.search}${targetUrl.hash}`,
+          browserWindow().location.origin,
+        );
+      }
       return new URL(target, this.current.url.href);
     }
 
     const branch = this.resolveNamedRouteBranch(target.name);
     const localPathname = buildLocalPathname(branch, target.params);
     const pathname = this.withBasePath(localPathname);
-    const href = `${pathname}${createSearchString(target.query)}${
-      normalizeHash(target.hash)
-    }`;
+    const href = `${pathname}${createSearchString(target.query)}${normalizeHash(
+      target.hash,
+    )}`;
 
     return new URL(href, browserWindow().location.origin);
   }
@@ -2312,6 +2581,63 @@ export class Router extends EventTarget {
       for (const branch of detailBranches(detail)) {
         await this.loadBranch(branch, signal);
       }
+
+      const routeData = new Map<RouteDefinition, unknown>();
+      const routesWithLoaders: RouteDefinition[] = [];
+      const seenRoutes = new Set<RouteDefinition>();
+
+      for (const branch of detailBranches(detail)) {
+        for (const route of branch) {
+          if (route.loader && !seenRoutes.has(route)) {
+            seenRoutes.add(route);
+            routesWithLoaders.push(route);
+          }
+        }
+      }
+
+      if (routesWithLoaders.length > 0) {
+        const results = await Promise.all(
+          routesWithLoaders.map((route) => {
+            const slot = route.slot || DEFAULT_CHILD_SLOT;
+            const params =
+              slot !== DEFAULT_CHILD_SLOT && detail.slotParams?.[slot]
+                ? detail.slotParams[slot]
+                : detail.params;
+            const loadContext: RouteLoadContext = {
+              signal,
+              router: this,
+              pathname: detail.pathname,
+              localPathname: detail.localPathname,
+              params,
+              query: detail.query,
+              hash: detail.hash,
+              url: detail.url,
+            };
+            return route.loader!(loadContext);
+          }),
+        );
+
+        if (signal.aborted) {
+          return false;
+        }
+
+        for (let i = 0; i < routesWithLoaders.length; i++) {
+          routeData.set(routesWithLoaders[i]!, results[i]);
+        }
+      }
+
+      detail.routeData = routeData;
+      if (detail.leaf && routeData.has(detail.leaf)) {
+        detail.data = routeData.get(detail.leaf);
+      } else {
+        for (let i = detail.branch.length - 1; i >= 0; i--) {
+          const r = detail.branch[i];
+          if (r && routeData.has(r)) {
+            detail.data = routeData.get(r);
+            break;
+          }
+        }
+      }
     } catch (error) {
       if (signal.aborted) {
         return false;
@@ -2345,10 +2671,7 @@ export class Router extends EventTarget {
     const committedDetail: RouterChangeDetail = {
       ...detail,
       navigationKey: nextNavigationKey,
-      direction: this.resolveNavigationDirection(
-        history,
-        nextNavigationKey,
-      ),
+      direction: this.resolveNavigationDirection(history, nextNavigationKey),
     };
     this.current = committedDetail;
     this.lastRouteErrorDetail = undefined;
@@ -2387,32 +2710,59 @@ export class Router extends EventTarget {
     if (from) {
       const leavingRoutes = collectLeavingRoutes(from, detail);
 
-      for (const route of leavingRoutes) {
-        if (signal.aborted) {
-          return { allowed: false };
+      if (leavingRoutes.length > 0) {
+        for (const guard of this.dynamicLeaveGuards) {
+          if (signal.aborted) {
+            return { allowed: false };
+          }
+
+          const result = await guard({
+            ...from,
+            to: detail,
+            router: this,
+            signal,
+          });
+          if (signal.aborted) {
+            return { allowed: false };
+          }
+          if (result === false) {
+            return { allowed: false };
+          }
+          if (result && result !== true) {
+            return {
+              allowed: false,
+              redirect: toRedirectInstruction(result, from.url.href),
+            };
+          }
         }
 
-        if (!route.beforeLeave) {
-          continue;
-        }
+        for (const route of leavingRoutes) {
+          if (signal.aborted) {
+            return { allowed: false };
+          }
 
-        const result = await route.beforeLeave({
-          ...from,
-          to: detail,
-          router: this,
-          signal,
-        });
-        if (signal.aborted) {
-          return { allowed: false };
-        }
-        if (result === false) {
-          return { allowed: false };
-        }
-        if (result && result !== true) {
-          return {
-            allowed: false,
-            redirect: toRedirectInstruction(result, from.url.href),
-          };
+          if (!route.beforeLeave) {
+            continue;
+          }
+
+          const result = await route.beforeLeave({
+            ...from,
+            to: detail,
+            router: this,
+            signal,
+          });
+          if (signal.aborted) {
+            return { allowed: false };
+          }
+          if (result === false) {
+            return { allowed: false };
+          }
+          if (result && result !== true) {
+            return {
+              allowed: false,
+              redirect: toRedirectInstruction(result, from.url.href),
+            };
+          }
         }
       }
     }
@@ -2481,9 +2831,10 @@ export class Router extends EventTarget {
   private branchNeedsLoading(branch: RouteDefinition[]): boolean {
     return branch.some((route) =>
       Boolean(
-        route.load &&
-          (!this.loadedRoutes.has(route) || this.pendingRouteLoads.has(route)),
-      )
+        route.loader ||
+        (route.load &&
+          (!this.loadedRoutes.has(route) || this.pendingRouteLoads.has(route))),
+      ),
     );
   }
 
@@ -2493,11 +2844,9 @@ export class Router extends EventTarget {
       loadingSlots.push(DEFAULT_CHILD_SLOT);
     }
 
-    for (
-      const [slotName, branch] of Object.entries(
-        detail.slotBranches ?? {},
-      ).sort(([left], [right]) => left.localeCompare(right))
-    ) {
+    for (const [slotName, branch] of Object.entries(
+      detail.slotBranches ?? {},
+    ).sort(([left], [right]) => left.localeCompare(right))) {
       if (this.branchNeedsLoading(branch)) {
         loadingSlots.push(slotName);
       }
@@ -2583,8 +2932,7 @@ export class Router extends EventTarget {
 
   private restoreCancelledNavigationWithNavigationApi(): boolean {
     const navigationApi = this.navigationApi;
-    const href =
-      `${this.current.url.pathname}${this.current.url.search}${this.current.url.hash}`;
+    const href = `${this.current.url.pathname}${this.current.url.search}${this.current.url.hash}`;
     try {
       navigationApi.navigate(href, { history: "replace" });
       return true;
@@ -2600,9 +2948,10 @@ export class Router extends EventTarget {
     loadingSlots: string[],
     direction: NavigationDirection,
   ): void {
-    this.activeRouteLoads = type === "route-loading-start"
-      ? this.activeRouteLoads + 1
-      : Math.max(0, this.activeRouteLoads - 1);
+    this.activeRouteLoads =
+      type === "route-loading-start"
+        ? this.activeRouteLoads + 1
+        : Math.max(0, this.activeRouteLoads - 1);
     this.dispatchEvent(
       new CustomEvent<RouteLoadingDetail>(type, {
         detail: {

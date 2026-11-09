@@ -12,8 +12,9 @@ export class ExampleDraftsPanel extends LitElement {
       <section class="panel">
         <h3 data-route-focus tabindex="-1">Lazy Drafts</h3>
         <p>
-          这个组件只会在首次进入时通过 <code>load()</code> 动态导入。查看顶部状态和
-          事件日志，可以看到 loading start / end。
+          这个组件只会在首次进入时通过
+          <code>load()</code> 动态导入。查看顶部状态和 事件日志，可以看到
+          loading start / end。
         </p>
         <p>
           Current local path:

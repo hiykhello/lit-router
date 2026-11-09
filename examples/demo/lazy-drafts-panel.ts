@@ -9,7 +9,8 @@ export class LazyDraftsPanel extends LitElement {
         <p class="eyebrow">Lazy Module Ready</p>
         <h3>草稿箱面板是按需加载的</h3>
         <p>
-          这个组件只会在首次命中对应路由时才通过动态 import 注册，适合后续拆页面模块。
+          这个组件只会在首次命中对应路由时才通过动态 import
+          注册，适合后续拆页面模块。
         </p>
       </section>
     `;
@@ -38,7 +39,10 @@ export class LazyDraftsPanel extends LitElement {
 
     h3 {
       margin: 0 0 10px;
-      font: 700 1.2rem/1.1 "Iowan Old Style", "Palatino Linotype", serif;
+      font:
+        700 1.2rem/1.1 "Iowan Old Style",
+        "Palatino Linotype",
+        serif;
       color: #102033;
     }
 

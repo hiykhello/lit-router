@@ -253,9 +253,9 @@ for each usedSlot in detail.slotBranches.keys():
 当前只考虑主链分支的 suffix：
 
 ```ts
-const leavingRoutes = from.branch.slice(
-  sharedBranchPrefixLength(from.branch, detail?.branch ?? []),
-).reverse();
+const leavingRoutes = from.branch
+  .slice(sharedBranchPrefixLength(from.branch, detail?.branch ?? []))
+  .reverse();
 ```
 
 目标：需要同时考虑 slot 分支中离开的路由：
@@ -726,11 +726,14 @@ Object.defineProperty(committedDetail, "toJSON", {
 ```ts
 interface RouterChangeDetail {
   leaf?: RouteDefinition; // 主链叶子，向后兼容
-  slots?: Record<string, {
-    branch: RouteDefinition[];
-    leaf?: RouteDefinition;
-    params: Record<string, string>;
-  }>;
+  slots?: Record<
+    string,
+    {
+      branch: RouteDefinition[];
+      leaf?: RouteDefinition;
+      params: Record<string, string>;
+    }
+  >;
 }
 ```
 
@@ -901,10 +904,7 @@ Object.assign(element, route.props ?? {});
 方案需要将侧 slot 分支的元素也纳入等待集合：
 
 ```ts
-const allElements = [
-  ...mainElements,
-  ...Object.values(slotBranches).flat(),
-];
+const allElements = [...mainElements, ...Object.values(slotBranches).flat()];
 await waitForRouteElements(allElements);
 ```
 
@@ -1055,41 +1055,43 @@ children，创建一个 Map 并执行 N 次 `Map.get`/`Map.set`。这是路径�
 操作，不在导航热路径上。
 
 ---
+
 ## 15. 落地数据流与改动清单
 
 ### 15.1 已完成（当前代码库）
 
-| 改动 | 文件 | 说明 |
-|------|------|------|
-| `CompiledRouteDefinition.childrenBySlot` | router-core.ts | 新增字段 |
-| `DEFAULT_CHILD_SLOT` | router-core.ts | 常量 `"route-child"` |
-| `groupBySlot()` | router-core.ts | 按 slot 分组编译后路由 |
-| `buildCompiledRoutes` 重构 | router-core.ts | 分离 children 构建与 sort |
-| `matchRoutes` 适配 | router-core.ts | 通过 `childrenBySlot.get()` 取默认 slot |
-| `RouteDefinition.slot?: string` | router-core.ts | v2 类型字段 |
-| `ReadonlyRouteDefinition` 含 `slot` | router-core.ts | 冻结快照自然传递 |
-| `matchSlotRoutes` | router-core.ts | 替换 `matchRoutes`，按 slot 遍历，含 `matchCache` |
-| `candidatePrefixes` | router-core.ts | 预计算候选 pathname，减少 slice/join 分配 |
-| `RouterChangeDetail.slotBranches` / `slotParams` / `slots` | router-core.ts | 侧 slot 分支、params 与统一 slot 详情 |
-| `RouterChangeDetail.toJSON` | router-core.ts | 序列化 `query` 与 `url` |
-| `RouteLoadingDetail.loadingSlots` | router-core.ts | loading 事件暴露本次加载涉及的 slot |
-| `RouteContext.slot` / `branch` | router-core.ts | 组件感知自身 slot 和分支 |
-| `renderedBranches: Map<string, HTMLElement[]>` | router-view.ts | 按 slot 分桶 |
-| `mountRouteBranch` | router-view.ts | 主链/侧链统一挂载逻辑 |
-| `moveFocusIntoRoute` 侧 slot 策略 | router-view.ts | 仅侧 slot 变化时避免无意义抢焦点 |
-| `beforeLeave` 多 slot | router-core.ts | 收集侧 slot 离开路由，按字典序排序 |
-| `loadBranch` 多 slot | router-core.ts | 遍历所有 slot 分支 |
-| `isSameDetail` 多 slot | router-core.ts | 比较 slot 分支引用 |
+| 改动                                                       | 文件           | 说明                                              |
+| ---------------------------------------------------------- | -------------- | ------------------------------------------------- |
+| `CompiledRouteDefinition.childrenBySlot`                   | router-core.ts | 新增字段                                          |
+| `DEFAULT_CHILD_SLOT`                                       | router-core.ts | 常量 `"route-child"`                              |
+| `groupBySlot()`                                            | router-core.ts | 按 slot 分组编译后路由                            |
+| `buildCompiledRoutes` 重构                                 | router-core.ts | 分离 children 构建与 sort                         |
+| `matchRoutes` 适配                                         | router-core.ts | 通过 `childrenBySlot.get()` 取默认 slot           |
+| `RouteDefinition.slot?: string`                            | router-core.ts | v2 类型字段                                       |
+| `ReadonlyRouteDefinition` 含 `slot`                        | router-core.ts | 冻结快照自然传递                                  |
+| `matchSlotRoutes`                                          | router-core.ts | 替换 `matchRoutes`，按 slot 遍历，含 `matchCache` |
+| `candidatePrefixes`                                        | router-core.ts | 预计算候选 pathname，减少 slice/join 分配         |
+| `RouterChangeDetail.slotBranches` / `slotParams` / `slots` | router-core.ts | 侧 slot 分支、params 与统一 slot 详情             |
+| `RouterChangeDetail.toJSON`                                | router-core.ts | 序列化 `query` 与 `url`                           |
+| `RouteLoadingDetail.loadingSlots`                          | router-core.ts | loading 事件暴露本次加载涉及的 slot               |
+| `RouteContext.slot` / `branch`                             | router-core.ts | 组件感知自身 slot 和分支                          |
+| `renderedBranches: Map<string, HTMLElement[]>`             | router-view.ts | 按 slot 分桶                                      |
+| `mountRouteBranch`                                         | router-view.ts | 主链/侧链统一挂载逻辑                             |
+| `moveFocusIntoRoute` 侧 slot 策略                          | router-view.ts | 仅侧 slot 变化时避免无意义抢焦点                  |
+| `beforeLeave` 多 slot                                      | router-core.ts | 收集侧 slot 离开路由，按字典序排序                |
+| `loadBranch` 多 slot                                       | router-core.ts | 遍历所有 slot 分支                                |
+| `isSameDetail` 多 slot                                     | router-core.ts | 比较 slot 分支引用                                |
 
 ### 15.2 后续可选增强
 
-| 改动 | 文件 | 说明 |
-|------|------|------|
-| 真实浏览器 E2E | tests/e2e | 覆盖 Navigation API / View Transitions API 实机行为 |
-| 清理 `mountBranch` 的 `_previousDetail` 参数 | router-view.ts | 重构后不再需要位置比对，参数可移除 |
-| 合并 `loadingSlots` 双重克隆 | router-core.ts | `loadingSlotsForDetail` + `dispatchRouteLoading` 各克隆一次 |
-| 缓存 `detailSlotBranches` 结果 | router-core.ts | 避免多处 spread 临时对象 |
-| 侧 slot 嵌套 children 测试 | tests/ | 验证 sidebar → sidebar-tools 递归链 |
+| 改动                                         | 文件           | 说明                                                        |
+| -------------------------------------------- | -------------- | ----------------------------------------------------------- |
+| 真实浏览器 E2E                               | tests/e2e      | 覆盖 Navigation API / View Transitions API 实机行为         |
+| 清理 `mountBranch` 的 `_previousDetail` 参数 | router-view.ts | 重构后不再需要位置比对，参数可移除                          |
+| 合并 `loadingSlots` 双重克隆                 | router-core.ts | `loadingSlotsForDetail` + `dispatchRouteLoading` 各克隆一次 |
+| 缓存 `detailSlotBranches` 结果               | router-core.ts | 避免多处 spread 临时对象                                    |
+| 侧 slot 嵌套 children 测试                   | tests/         | 验证 sidebar → sidebar-tools 递归链                         |
+
 ---
 
 ## 14. 实施验收清单

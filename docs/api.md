@@ -14,9 +14,18 @@ import "@elelcode/lit-router";
 
 ```ts
 import {
+  activeRoute,
+  type ActiveRouteDirectiveOptions,
+  type Context,
+  type ContextCallback,
+  type ContextRequest,
+  type ContextRequestEvent,
+  contextRequestEventName,
   DEFAULT_CHILD_SLOT,
   type NavigationDirection,
   type ReadonlyRouteDefinition,
+  requestContext,
+  routeContext,
   type RouteComponentFactory,
   type RouteContext,
   type RouteContextReceiver,
@@ -26,8 +35,13 @@ import {
   type RouteGuardRedirect,
   type RouteGuardResult,
   type RouteInsertOptions,
+  type RouteIsActiveOptions,
   type RouteLeaveGuard,
+  routerContext,
+  routerLink,
+  type RouterLinkDirectiveOptions,
   type RouteLoadContext,
+  type RouteLoader,
   type RouteLoadingDetail,
   type RouteLocation,
   type RouteMeta,
@@ -50,7 +64,9 @@ import {
   type RouterSlotDetailJson,
   RouterView,
   type RouteSelector,
+  type RouteTarget,
   type RouteTreeChangeDetail,
+  type UnknownContext,
 } from "@elelcode/lit-router";
 ```
 
@@ -172,12 +188,13 @@ router.insertRoutes([
   { path: "reports", id: "reports-plugin", component: "reports-page" },
 ]);
 
-router.insertRoutes([
-  { path: "audit", id: "settings-audit", component: "audit-page" },
-], {
-  parentId: "settings-shell",
-  index: 1,
-});
+router.insertRoutes(
+  [{ path: "audit", id: "settings-audit", component: "audit-page" }],
+  {
+    parentId: "settings-shell",
+    index: 1,
+  },
+);
 ```
 
 `RouteInsertOptions`:
@@ -216,11 +233,13 @@ Groups multiple tree updates into a single refresh.
 
 ```ts
 router.batchRouteUpdates(() => {
-  router.insertRoutes([{
-    path: "alpha",
-    name: "alpha",
-    component: "alpha-page",
-  }]);
+  router.insertRoutes([
+    {
+      path: "alpha",
+      name: "alpha",
+      component: "alpha-page",
+    },
+  ]);
   router.insertRoutes([{ path: "beta", name: "beta", component: "beta-page" }]);
 });
 ```
@@ -301,6 +320,75 @@ const attrs = router.linkAttributes(
 ```
 
 Plain fragments such as `#section` are left to the browser.
+
+#### `router.isActive(target, options?): boolean`
+
+Determines if the specified route target is currently active. Supports path prefix matching, exact path matching, named routes, route selectors with `id`, params matching, query params, and hash fragments.
+
+```ts
+// Path prefix match: true for /users, /users/42, etc.
+router.isActive("/users");
+
+// Exact path match: true only for /users
+router.isActive("/users", { exact: true });
+
+// Named route match
+router.isActive("user-detail");
+
+// Target by route selector ID
+router.isActive({ id: "user-profile-id" });
+
+// Location object with params, query, and hash
+router.isActive({
+  name: "user-detail",
+  params: { id: "42" },
+  query: { tab: "activity" },
+  hash: "timeline",
+});
+
+// Or pass query/hash in options
+router.isActive("/users/42", {
+  query: { tab: "activity" },
+  hash: "timeline",
+});
+```
+
+`options` may include:
+
+- `exact?: boolean`: require exact path matching instead of prefix matching.
+- `params?: Record<string, RouteParamValue>`: ensure current route params match.
+- `query?: RouteQueryInit`: ensure current URL query params match.
+- `hash?: string`: ensure current URL hash matches.
+
+#### `router.registerLeaveGuard(guard): () => void`
+
+Dynamically registers a global or temporary leave guard. When the user navigates away from the current route branch, the guard is invoked. If the guard returns `false` or rejects, navigation is blocked and the browser URL is restored.
+
+Returns an unregister callback function.
+
+```ts
+const unregister = router.registerLeaveGuard((detail) => {
+  if (hasUnsavedChanges) {
+    return confirm("You have unsaved changes. Leave anyway?");
+  }
+  return true;
+});
+
+// Later, when done:
+unregister();
+```
+
+#### `router.getRouteData<T>(selector?): T | undefined`
+
+Retrieves preloaded data fetched by route `loader` functions. If `selector` is omitted, returns data from the current active leaf route. If `selector` is provided (route `name` or `RouteSelector`), returns data loaded for that specific route branch.
+
+```ts
+// Leaf route preloaded data
+const userData = router.getRouteData<UserData>();
+
+// Specific parent route preloaded data
+const shellData = router.getRouteData<ShellData>("settings-shell");
+```
 
 ### Events
 
@@ -626,9 +714,7 @@ Semantics:
 
 ```ts
 type RouteGuardRedirect =
-  | string
-  | URL
-  | { to: string | URL; replace?: boolean };
+  string | URL | { to: string | URL; replace?: boolean };
 
 type RouteGuardResult = boolean | void | RouteGuardRedirect;
 ```
@@ -649,12 +735,8 @@ type RouteGuard = (
   | URL
   | { to: string | URL; replace?: boolean }
   | Promise<
-    | boolean
-    | void
-    | string
-    | URL
-    | { to: string | URL; replace?: boolean }
-  >;
+      boolean | void | string | URL | { to: string | URL; replace?: boolean }
+    >;
 ```
 
 Order:
@@ -680,12 +762,8 @@ type RouteLeaveGuard = (
   | URL
   | { to: string | URL; replace?: boolean }
   | Promise<
-    | boolean
-    | void
-    | string
-    | URL
-    | { to: string | URL; replace?: boolean }
-  >;
+      boolean | void | string | URL | { to: string | URL; replace?: boolean }
+    >;
 ```
 
 Order:
@@ -698,11 +776,28 @@ Order:
 ```ts
 interface RouteLoadContext {
   signal: AbortSignal;
+  router: Router;
+  pathname: string;
+  localPathname: string;
+  params: Record<string, string>;
+  query: URLSearchParams;
+  hash: string;
+  url: URL;
 }
 ```
 
-Use `signal` to cancel work started by `load()` when a newer navigation
+Use `signal` to cancel work started by `load()` or `loader` when a newer navigation
 supersedes it.
+
+### `RouteLoader<TData>`
+
+```ts
+type RouteLoader<TData = unknown> = (
+  context: RouteLoadContext,
+) => Promise<TData> | TData;
+```
+
+Attached to `RouteDefinition.loader`. Fetches data concurrently during navigation before committing the route. The returned data is available via `router.current.data`, `router.getRouteData()`, `routeContext.data`, and `element.data`.
 
 ## Route context contract
 
@@ -727,11 +822,143 @@ interface RouteContext {
   params: Record<string, string>;
   slot: string;
   branch: RouteDefinition[];
+  data?: unknown;
 }
 ```
 
 `detail.query` is a `URLSearchParams`. `slot` is the slot this component was
-projected into, and `branch` is the branch for that slot.
+projected into, and `branch` is the branch for that slot. `data` contains any data preloaded by `RouteDefinition.loader`.
+
+If the rendered element defines a `data` property, `<router-view>` will also automatically assign `element.data = context.data`.
+
+### Component Leave Guard Contract (`beforeRouteLeave`)
+
+Any custom element rendered by `<router-view>` may declare a `beforeRouteLeave` method:
+
+```ts
+class EditForm extends LitElement {
+  hasUnsavedChanges = true;
+
+  beforeRouteLeave(detail: {
+    to: RouterChangeDetail | null;
+    router: Router;
+    signal: AbortSignal;
+  }): boolean | Promise<boolean> {
+    if (this.hasUnsavedChanges) {
+      return confirm("Discard unsaved changes?");
+    }
+    return true;
+  }
+}
+```
+
+When navigating away, `<router-view>` automatically checks `beforeRouteLeave` on all leaving components before proceeding. Returning `false` blocks navigation and restores the browser URL.
+
+## Declarative Directives
+
+`@elelcode/lit-router` provides Lit directives for seamless declarative navigation inside Lit templates:
+
+### `routerLink(targetOrRouter, targetOrOptions?, options?)`
+
+Directly binds an `<a>` element to a route target. Automatically manages `href`, click interception (preserving Ctrl/Cmd clicks and external links), active class toggling, and `aria-current="page"`.
+
+```ts
+import { html, LitElement } from "lit";
+import { routerLink } from "@elelcode/lit-router";
+
+// When used inside a <router-view>, router instance is automatically injected via context!
+html`
+  <a ${routerLink("/users")}>Users</a>
+  <a ${routerLink("/users/42", { activeClass: "active", exact: true })}
+    >User 42</a
+  >
+  <a ${routerLink({ name: "settings", query: { tab: "profile" } })}>Settings</a>
+`;
+
+// Explicit router reference
+html`
+  <a ${routerLink(router, "/dashboard", { activeClass: "nav-active" })}>
+    Dashboard
+  </a>
+`;
+```
+
+`RouterLinkDirectiveOptions`:
+
+- `activeClass?: string`: CSS class added when the link target matches `router.isActive()` (default: `"active"`).
+- `exact?: boolean`: require exact path matching.
+- `replace?: boolean`: use replace-state navigation instead of push.
+- `ariaCurrent?: string`: set `aria-current` attribute when active (default: `"page"`).
+- `params?: Record<string, RouteParamValue>`: parameters for named route.
+- `query?: RouteQueryInit`: query parameters.
+- `hash?: string`: hash fragment.
+
+### `activeRoute(targetOrRouter, targetOrOptions?, options?)`
+
+Directly binds any HTML element (such as `<li>`, `<button>`, or `<div>`) to reflect active route state. Automatically adds `activeClass` and `aria-current` when active.
+
+```ts
+import { activeRoute } from "@elelcode/lit-router";
+
+html`
+  <li ${activeRoute("/dashboard", { activeClass: "tab-active" })}>
+    <a href="/dashboard">Dashboard</a>
+  </li>
+`;
+```
+
+## W3C Context Protocol
+
+`@elelcode/lit-router` natively supports the [W3C Community Group Context Protocol](https://github.com/webcomponents-cg/community-protocols/blob/main/proposals/context.md), making it 100% interoperable with `@lit/context` and native Web Components with **zero** external dependencies.
+
+### Tokens
+
+- `routerContext`: Context token for the current `Router` instance.
+- `routeContext`: Context token for the current `RouteContext`.
+
+### Usage with `@lit/context`
+
+```ts
+import { LitElement, html } from "lit";
+import { consume } from "@lit/context";
+import {
+  routerContext,
+  routeContext,
+  type Router,
+  type RouteContext,
+} from "@elelcode/lit-router";
+
+class MyDeepChildComponent extends LitElement {
+  @consume({ context: routerContext, subscribe: true })
+  router?: Router;
+
+  @consume({ context: routeContext, subscribe: true })
+  route?: RouteContext;
+
+  render() {
+    return html`
+      <p>Current path: ${this.route?.detail.localPathname}</p>
+      <button @click=${() => this.router?.push("/")}>Home</button>
+    `;
+  }
+}
+```
+
+### Usage without `@lit/context` (`requestContext`)
+
+```ts
+import { requestContext, routerContext } from "@elelcode/lit-router";
+
+// Anywhere in your DOM under <router-view>:
+const unsubscribe = requestContext(
+  element,
+  routerContext,
+  (router) => {
+    console.log("Router resolved:", router);
+  },
+  true /* subscribe to changes */,
+);
+```
 
 ## Event detail types
 
@@ -750,14 +977,19 @@ interface RouterChangeDetail {
   leaf?: RouteDefinition;
   slotBranches?: Record<string, RouteDefinition[]>;
   slotParams?: Record<string, Record<string, string>>;
-  slots?: Record<string, {
-    branch: RouteDefinition[];
-    leaf?: RouteDefinition;
-    params: Record<string, string>;
-  }>;
+  slots?: Record<
+    string,
+    {
+      branch: RouteDefinition[];
+      leaf?: RouteDefinition;
+      params: Record<string, string>;
+    }
+  >;
   url: URL;
   navigationKey: string;
   direction: "forward" | "backward" | "none";
+  data?: unknown;
+  routeData?: Map<RouteDefinition, unknown>;
   toJSON?: () => RouterChangeDetailJson;
 }
 ```
@@ -768,6 +1000,8 @@ Field notes:
 - `localPathname`: pathname relative to `basePath`
 - `branch`: matched route branch from root to leaf
 - `leaf`: matched leaf route
+- `data`: data preloaded by the leaf route's `loader` (if any)
+- `routeData`: map of all preloaded data across matched branch definitions
 - `slotBranches`: matched non-main slot branches, keyed by slot name
 - `slotParams`: params for each non-main slot branch
 - `slots`: slot-aware detail map including the main `"route-child"` slot

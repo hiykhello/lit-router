@@ -5,34 +5,50 @@ import {
   LitElement,
   type TemplateResult,
 } from "lit";
-import { customElement, property } from "lit/decorators.js";
 import { browserDocument, browserWindow } from "./browser-env.ts";
 import { ScrollManager } from "./scroll-manager.ts";
-import type {
-  NavigationDirection,
-  RouteContext,
-  RouteContextReceiver,
-  RouteDefinition,
-  RouteErrorDetail,
-  RouteLocation,
-  RouteNotFoundDetail,
-  Router,
-  RouterChangeDetail,
+import {
+  collectLeavingRoutes,
+  type NavigationDirection,
+  type RouteContext,
+  type RouteContextReceiver,
+  type RouteDefinition,
+  type RouteErrorDetail,
+  type RouteGuardResult,
+  type RouteLeaveGuard,
+  type RouteLocation,
+  type RouteNotFoundDetail,
+  type Router,
+  type RouterChangeDetail,
 } from "./router-core.ts";
+import {
+  type ContextCallback,
+  type ContextRequest,
+  routerContext,
+  routeContext,
+  type UnknownContext,
+} from "./context.ts";
 
 export const DEFAULT_CHILD_SLOT = "route-child";
 type ViewMode = "route" | "not-found" | "error";
 
-@customElement("router-view")
 export class RouterView extends LitElement {
-  @property({ attribute: false })
-  accessor router: Router | undefined;
+  static override properties = {
+    router: { attribute: false },
+    childSlot: { attribute: "child-slot" },
+    noViewTransition: { attribute: "no-view-transition", type: Boolean },
+  };
 
-  @property({ attribute: "child-slot" })
-  accessor childSlot: string = DEFAULT_CHILD_SLOT;
+  declare router: Router | undefined;
+  declare childSlot: string;
+  declare noViewTransition: boolean;
 
-  @property({ attribute: "no-view-transition", type: Boolean })
-  accessor noViewTransition: boolean = false;
+  constructor() {
+    super();
+    this.router = undefined;
+    this.childSlot = DEFAULT_CHILD_SLOT;
+    this.noViewTransition = false;
+  }
 
   private viewMode: ViewMode = "route";
 
@@ -66,9 +82,17 @@ export class RouterView extends LitElement {
   >();
   private subscribedRouter?: Router;
   private commitId = 0;
+  private pendingCommitDetail?: RouterChangeDetail;
+  private unregisterLeaveGuard?: () => void;
+  private readonly routerSubscribers = new Set<ContextCallback<Router>>();
+  private readonly routeSubscribers = new Set<ContextCallback<RouteContext>>();
 
   connectedCallback(): void {
     super.connectedCallback();
+    this.addEventListener(
+      "context-request",
+      this.onContextRequest as EventListener,
+    );
     this.scrollManager.acquireBrowserScrollRestoration();
     this.setTransitionDirection(this.activeDetail.direction);
     this.setViewTransitionName(this.activeDetail.leaf?.viewTransitionName);
@@ -76,9 +100,15 @@ export class RouterView extends LitElement {
   }
 
   disconnectedCallback(): void {
+    this.removeEventListener(
+      "context-request",
+      this.onContextRequest as EventListener,
+    );
     this.invalidatePendingCommits({ clearRenderedElements: true });
     this.disconnectRouter();
     this.scrollManager.releaseBrowserScrollRestoration();
+    this.routerSubscribers.clear();
+    this.routeSubscribers.clear();
     super.disconnectedCallback();
   }
 
@@ -139,6 +169,9 @@ export class RouterView extends LitElement {
     }
 
     this.router.start();
+    this.unregisterLeaveGuard = this.router.registerLeaveGuard(
+      this.checkComponentLeaveGuards,
+    );
     this.router.addEventListener(
       "route-change",
       this.onRouteChange as EventListener,
@@ -152,9 +185,12 @@ export class RouterView extends LitElement {
       this.onRouteNotFound as EventListener,
     );
     this.subscribedRouter = this.router;
+    this.notifyRouterSubscribers();
   }
 
   private disconnectRouter(): void {
+    this.unregisterLeaveGuard?.();
+    this.unregisterLeaveGuard = undefined;
     if (!this.subscribedRouter) {
       return;
     }
@@ -172,6 +208,173 @@ export class RouterView extends LitElement {
       this.onRouteNotFound as EventListener,
     );
     this.subscribedRouter = undefined;
+  }
+
+  private readonly checkComponentLeaveGuards: RouteLeaveGuard = async (
+    detail,
+  ) => {
+    const from = detail;
+    const to = detail.to;
+    const elementByRoute = this.collectRenderedElementByRoute();
+    const leavingRoutes = collectLeavingRoutes(from, to);
+
+    for (const route of leavingRoutes) {
+      if (detail.signal.aborted) {
+        return false;
+      }
+      const element = elementByRoute.get(route);
+      if (!element) {
+        continue;
+      }
+
+      const leaveAware = element as HTMLElement & {
+        beforeRouteLeave?: (
+          detail: Parameters<RouteLeaveGuard>[0],
+        ) => RouteGuardResult | Promise<RouteGuardResult>;
+      };
+
+      if (typeof leaveAware.beforeRouteLeave === "function") {
+        try {
+          const result = await leaveAware.beforeRouteLeave(detail);
+          if (result === false || (result && result !== true)) {
+            return result;
+          }
+        } catch (error) {
+          console.error(
+            "[router-view] Component beforeRouteLeave threw an error",
+            error,
+          );
+          return false;
+        }
+      }
+    }
+
+    return true;
+  };
+
+  private getEffectiveDetail(): RouterChangeDetail {
+    if (this.pendingCommitDetail) {
+      return this.pendingCommitDetail;
+    }
+    if (this.activeDetail.branch.length > 0) {
+      return this.activeDetail;
+    }
+    if (this.router && this.router.current.branch.length > 0) {
+      return this.router.current;
+    }
+    return this.activeDetail;
+  }
+
+  private readonly onContextRequest = (event: Event): void => {
+    const request = event as unknown as ContextRequest<UnknownContext>;
+    const isRouterCtx =
+      request.context === routerContext ||
+      (typeof request.context === "object" &&
+        request.context !== null &&
+        "name" in request.context &&
+        (request.context as { name?: unknown }).name === routerContext.name) ||
+      (request.context as unknown) === routerContext.name;
+
+    if (isRouterCtx) {
+      event.stopPropagation();
+      const unsubscribe = () => {
+        this.routerSubscribers.delete(
+          request.callback as ContextCallback<Router>,
+        );
+      };
+      if (request.subscribe) {
+        this.routerSubscribers.add(request.callback as ContextCallback<Router>);
+      }
+      if (this.router) {
+        request.callback(this.router, unsubscribe);
+      }
+      return;
+    }
+
+    const isRouteCtx =
+      request.context === routeContext ||
+      (typeof request.context === "object" &&
+        request.context !== null &&
+        "name" in request.context &&
+        (request.context as { name?: unknown }).name === routeContext.name) ||
+      (request.context as unknown) === routeContext.name;
+
+    if (isRouteCtx) {
+      event.stopPropagation();
+      const detail = this.getEffectiveDetail();
+      let slotName = DEFAULT_CHILD_SLOT;
+      const path = event.composedPath ? event.composedPath() : [];
+      const target = (path[0] ?? event.target) as Node | undefined;
+      if (target) {
+        for (const [slot, elements] of this.renderedBranches) {
+          if (elements.some((el) => el === target || el.contains(target))) {
+            slotName = slot;
+            break;
+          }
+        }
+      }
+
+      const slotBranch =
+        slotName === DEFAULT_CHILD_SLOT
+          ? detail.branch
+          : (detail.slotBranches?.[slotName] ?? detail.branch);
+      const slotParams =
+        slotName === DEFAULT_CHILD_SLOT
+          ? detail.params
+          : (detail.slotParams?.[slotName] ?? detail.params);
+      const slotLeaf = slotBranch[slotBranch.length - 1];
+      const slotData =
+        (slotLeaf && detail.routeData?.get(slotLeaf)) ?? detail.data;
+
+      const currentRouteCtx: RouteContext = {
+        detail,
+        params: slotParams,
+        slot: slotName,
+        branch: slotBranch,
+        data: slotData,
+      };
+
+      const unsubscribe = () => {
+        this.routeSubscribers.delete(
+          request.callback as ContextCallback<RouteContext>,
+        );
+      };
+      if (request.subscribe) {
+        this.routeSubscribers.add(
+          request.callback as ContextCallback<RouteContext>,
+        );
+      }
+      request.callback(currentRouteCtx, unsubscribe);
+      return;
+    }
+  };
+
+  private notifyRouterSubscribers(): void {
+    if (!this.router) {
+      return;
+    }
+    for (const callback of this.routerSubscribers) {
+      const unsubscribe = () => {
+        this.routerSubscribers.delete(callback);
+      };
+      callback(this.router, unsubscribe);
+    }
+  }
+
+  private notifyRouteSubscribers(): void {
+    const currentRouteCtx: RouteContext = {
+      detail: this.activeDetail,
+      params: this.activeDetail.params,
+      slot: DEFAULT_CHILD_SLOT,
+      branch: this.activeDetail.branch,
+      data: this.activeDetail.data,
+    };
+    for (const callback of this.routeSubscribers) {
+      const unsubscribe = () => {
+        this.routeSubscribers.delete(callback);
+      };
+      callback(currentRouteCtx, unsubscribe);
+    }
   }
 
   private syncFromRouter(allowTransition: boolean): void {
@@ -277,18 +480,21 @@ export class RouterView extends LitElement {
 
     void this.commit(detail, {
       skipTransition: options.skipTransition,
-    }).then((committed) => {
-      if (!committed) {
-        return;
-      }
+    })
+      .then((committed) => {
+        if (!committed) {
+          return;
+        }
 
-      this.dispatchRouteChange(detail);
-    }).catch((error) => {
-      this.dispatchCommitError(detail, error);
-    });
+        this.dispatchRouteChange(detail);
+      })
+      .catch((error) => {
+        this.dispatchCommitError(detail, error);
+      });
   }
 
   private dispatchRouteChange(detail: RouterChangeDetail): void {
+    this.notifyRouteSubscribers();
     this.dispatchEvent(
       new CustomEvent<RouterChangeDetail>("route-change", {
         detail,
@@ -345,59 +551,66 @@ export class RouterView extends LitElement {
     const title = detail.leaf?.title;
     const previousDetail = this.activeDetail;
     const currentCommitId = ++this.commitId;
+    this.pendingCommitDetail = detail;
     this.setTransitionDirection(detail.direction);
     this.setViewTransitionName(detail.leaf?.viewTransitionName);
 
-    const applyRoute = async (): Promise<boolean> => {
-      if (this.isCommitStale(currentCommitId)) {
-        return false;
-      }
+    try {
+      const applyRoute = async (): Promise<boolean> => {
+        if (this.isCommitStale(currentCommitId)) {
+          return false;
+        }
 
-      await this.updateComplete;
-      if (this.isCommitStale(currentCommitId)) {
-        return false;
-      }
+        await this.updateComplete;
+        if (this.isCommitStale(currentCommitId)) {
+          return false;
+        }
 
-      const previousRenderedBranches = new Map(this.renderedBranches);
-      const previousFocusedElement = this.getRenderRootActiveElement() ??
-        browserDocument().activeElement;
-      const renderedElements = this.mountBranch(detail);
-      await this.waitForRouteElements(renderedElements);
-      await this.validatePendingChildOutlets();
-      if (this.isCommitStale(currentCommitId)) {
-        return false;
-      }
+        const previousRenderedBranches = new Map(this.renderedBranches);
+        const previousFocusedElement =
+          this.getRenderRootActiveElement() ?? browserDocument().activeElement;
+        const renderedElements = this.mountBranch(detail);
+        await this.waitForRouteElements(renderedElements);
+        await this.validatePendingChildOutlets();
+        if (this.isCommitStale(currentCommitId)) {
+          return false;
+        }
 
-      this.activeDetail = detail;
-      this.showRouteStage();
-      this.restoreScrollPosition(detail);
-      this.moveFocusIntoRoute(
-        detail,
-        previousDetail,
-        previousRenderedBranches,
-        previousFocusedElement,
-      );
-      return true;
-    };
+        this.activeDetail = detail;
+        this.showRouteStage();
+        this.restoreScrollPosition(detail);
+        this.moveFocusIntoRoute(
+          detail,
+          previousDetail,
+          previousRenderedBranches,
+          previousFocusedElement,
+        );
+        return true;
+      };
 
-    let committed = false;
-    if (options.skipTransition || this.noViewTransition) {
-      committed = await applyRoute();
-    } else {
-      await this.runViewTransition(async () => {
+      let committed = false;
+      if (options.skipTransition || this.noViewTransition) {
         committed = await applyRoute();
-      });
-    }
+      } else {
+        await this.runViewTransition(async () => {
+          committed = await applyRoute();
+        });
+      }
 
-    if (!committed || this.isCommitStale(currentCommitId)) {
-      return false;
-    }
+      if (!committed || this.isCommitStale(currentCommitId)) {
+        return false;
+      }
 
-    if (title) {
-      browserDocument().title = this.fillTitle(title, detail.params);
-    }
+      if (title) {
+        browserDocument().title = this.fillTitle(title, detail.params);
+      }
 
-    return true;
+      return true;
+    } finally {
+      if (this.pendingCommitDetail === detail) {
+        this.pendingCommitDetail = undefined;
+      }
+    }
   }
 
   private isCommitStale(commitId: number): boolean {
@@ -420,9 +633,7 @@ export class RouterView extends LitElement {
     delete this.dataset.viewTransitionName;
   }
 
-  private mountBranch(
-    detail: RouterChangeDetail,
-  ): HTMLElement[] {
+  private mountBranch(detail: RouterChangeDetail): HTMLElement[] {
     const viewport = this.viewport;
     if (!viewport) {
       return [];
@@ -458,11 +669,9 @@ export class RouterView extends LitElement {
       viewport.replaceChildren(root);
     }
 
-    for (
-      const [slotName, branch] of Object.entries(
-        detail.slotBranches ?? {},
-      ).sort(([left], [right]) => left.localeCompare(right))
-    ) {
+    for (const [slotName, branch] of Object.entries(
+      detail.slotBranches ?? {},
+    ).sort(([left], [right]) => left.localeCompare(right))) {
       this.mountRouteBranch({
         slotName,
         branch,
@@ -497,20 +706,21 @@ export class RouterView extends LitElement {
     mountedList: HTMLElement[];
   }): void {
     const elements: HTMLElement[] = [];
-    const branchParams = options.slotName === DEFAULT_CHILD_SLOT
-      ? options.detail.params
-      : options.detail.slotParams?.[options.slotName] ??
-        options.detail.slots?.[options.slotName]?.params ??
-        options.detail.params;
+    const branchParams =
+      options.slotName === DEFAULT_CHILD_SLOT
+        ? options.detail.params
+        : (options.detail.slotParams?.[options.slotName] ??
+          options.detail.slots?.[options.slotName]?.params ??
+          options.detail.params);
 
     for (let index = 0; index < options.branch.length; index += 1) {
       const route = options.branch[index];
-      let element = options.nextElementByRoute.get(route) ??
+      let element =
+        options.nextElementByRoute.get(route) ??
         options.oldElementByRoute.get(route);
       const created = !element;
-      const routeSlot = index === 0
-        ? DEFAULT_CHILD_SLOT
-        : this.routeSlot(route);
+      const routeSlot =
+        index === 0 ? DEFAULT_CHILD_SLOT : this.routeSlot(route);
 
       if (!element) {
         element = this.createRouteElement(
@@ -585,9 +795,10 @@ export class RouterView extends LitElement {
   private collectRenderedElementByRoute(): Map<RouteDefinition, HTMLElement> {
     const map = new Map<RouteDefinition, HTMLElement>();
     for (const [slotName, branch] of this.renderedBranches) {
-      const routes = slotName === DEFAULT_CHILD_SLOT
-        ? this.activeDetail.branch
-        : this.activeDetail.slotBranches?.[slotName] ?? [];
+      const routes =
+        slotName === DEFAULT_CHILD_SLOT
+          ? this.activeDetail.branch
+          : (this.activeDetail.slotBranches?.[slotName] ?? []);
       for (let index = 0; index < routes.length; index += 1) {
         const element = branch[index];
         if (element && !map.has(routes[index])) {
@@ -629,11 +840,15 @@ export class RouterView extends LitElement {
     branch: RouteDefinition[],
     params: Record<string, string>,
   ): void {
+    const routeData =
+      detail.routeData?.get(route) ??
+      (route === branch[branch.length - 1] ? detail.data : undefined);
     const routeContext: RouteContext = {
       detail,
       params,
       slot,
       branch,
+      data: routeData,
     };
     const assignProps = () => {
       Object.assign(element, route.props ?? {});
@@ -645,20 +860,21 @@ export class RouterView extends LitElement {
       element.localName.includes("-") &&
       !customElementsRegistry.get(element.localName)
     ) {
-      void customElementsRegistry.whenDefined(element.localName).then(
-        assignProps,
-      );
+      void customElementsRegistry
+        .whenDefined(element.localName)
+        .then(assignProps);
       return;
     }
 
     assignProps();
   }
 
-  private applyRouteContext(
-    element: HTMLElement,
-    context: RouteContext,
-  ): void {
+  private applyRouteContext(element: HTMLElement, context: RouteContext): void {
     const receiver = element as HTMLElement & RouteContextReceiver;
+
+    if (context.data !== undefined && "data" in element) {
+      receiver.data = context.data;
+    }
 
     if (typeof receiver.setRouteContext === "function") {
       receiver.setRouteContext(context);
@@ -759,9 +975,7 @@ export class RouterView extends LitElement {
 
   private async runViewTransition(update: () => Promise<void>): Promise<void> {
     const transitionDocument = browserDocument() as Document & {
-      startViewTransition?: (
-        callback: () => Promise<void> | void,
-      ) => {
+      startViewTransition?: (callback: () => Promise<void> | void) => {
         finished: Promise<void>;
         updateCallbackDone?: Promise<void>;
       };
@@ -813,9 +1027,8 @@ export class RouterView extends LitElement {
       return;
     }
 
-    const focusTarget = this.viewport?.querySelector<HTMLElement>(
-      "[data-route-focus]",
-    );
+    const focusTarget =
+      this.viewport?.querySelector<HTMLElement>("[data-route-focus]");
     if (focusTarget) {
       focusTarget.focus();
       return;
@@ -836,17 +1049,25 @@ export class RouterView extends LitElement {
       ...Object.keys(nextSlots),
     ]);
 
-    return [...slotNames].filter((slotName) =>
-      !this.sameBranch(previousSlots[slotName] ?? [], nextSlots[slotName] ?? [])
-    ).sort();
+    return [...slotNames]
+      .filter(
+        (slotName) =>
+          !this.sameBranch(
+            previousSlots[slotName] ?? [],
+            nextSlots[slotName] ?? [],
+          ),
+      )
+      .sort();
   }
 
   private sameBranch(
     previousBranch: RouteDefinition[],
     nextBranch: RouteDefinition[],
   ): boolean {
-    return previousBranch.length === nextBranch.length &&
-      previousBranch.every((route, index) => route === nextBranch[index]);
+    return (
+      previousBranch.length === nextBranch.length &&
+      previousBranch.every((route, index) => route === nextBranch[index])
+    );
   }
 
   private focusWasInBranches(
@@ -890,9 +1111,8 @@ export class RouterView extends LitElement {
     const fallback = this.renderRoot.querySelector<HTMLElement>(
       `.fallback[data-fallback="${kind}"]`,
     );
-    const focusTarget = fallback?.querySelector<HTMLElement>(
-      "[data-route-focus]",
-    );
+    const focusTarget =
+      fallback?.querySelector<HTMLElement>("[data-route-focus]");
     if (focusTarget) {
       focusTarget.focus();
       return;
@@ -923,9 +1143,8 @@ export class RouterView extends LitElement {
         return element;
       }
 
-      const descendant = element.querySelector<HTMLElement>(
-        "[data-route-focus]",
-      );
+      const descendant =
+        element.querySelector<HTMLElement>("[data-route-focus]");
       if (descendant) {
         return descendant;
       }
@@ -981,7 +1200,9 @@ export class RouterView extends LitElement {
           <article class="fallback-card">
             <p class="fallback-eyebrow">Route Error</p>
             <h1 data-route-focus tabindex="-1">Navigation Failed</h1>
-            <p>The route transition failed during <code>${errorPhase}</code>.</p>
+            <p>
+              The route transition failed during <code>${errorPhase}</code>.
+            </p>
             <pre class="fallback-error">${errorMessage}</pre>
           </article>
         </slot>
@@ -1053,4 +1274,11 @@ export class RouterView extends LitElement {
       background: color-mix(in srgb, canvas 86%, currentColor 14%);
     }
   `;
+}
+
+if (
+  typeof customElements !== "undefined" &&
+  !customElements.get("router-view")
+) {
+  customElements.define("router-view", RouterView);
 }

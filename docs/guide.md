@@ -35,7 +35,7 @@ Further reading:
 ## Install
 
 ```bash
-deno add jsr:@elelcode/lit-router
+npm install @elelcode/lit-router lit
 ```
 
 Import:
@@ -105,7 +105,7 @@ Key files:
 Run it with:
 
 ```bash
-deno serve --port 8000 index.html
+npm run dev
 ```
 
 ## Core Concepts
@@ -198,7 +198,48 @@ Example:
 unloaded. Shared parent routes are not re-checked when sibling child routes
 switch.
 
-## Lazy Loading
+### Component-Level Leave Guards (`beforeRouteLeave`)
+
+Components rendered in `<router-view>` can protect against unsaved form data loss by declaring `beforeRouteLeave`:
+
+```ts
+import { LitElement, html } from "lit";
+import { customElement } from "lit/decorators.js";
+
+@customElement("article-editor")
+class ArticleEditor extends LitElement {
+  hasUnsavedChanges = true;
+
+  beforeRouteLeave(detail) {
+    if (this.hasUnsavedChanges) {
+      return confirm("Discard unsaved changes?");
+    }
+    return true;
+  }
+}
+```
+
+When navigating away, `<router-view>` checks leaving components. Returning `false` or rejecting the promise will block navigation.
+
+### Dynamic Leave Guards (`router.registerLeaveGuard`)
+
+Register temporary leave guards dynamically from anywhere in the application:
+
+```ts
+const unregister = router.registerLeaveGuard((detail) => {
+  if (isSyncing) {
+    return false; // prevent navigating away
+  }
+  return true;
+});
+
+// Remove guard when sync finishes:
+unregister();
+```
+
+## Lazy Loading & Route Data Loaders
+
+### Code Splitting with `load`
 
 Offload non-homepage routes:
 
@@ -212,12 +253,35 @@ Offload non-homepage routes:
 
 Each route only loads once on first entry.
 
+### Async Data Prefetching with `loader`
+
+Avoid waterfall requests by prefetching data concurrently during navigation:
+
+```ts
+{
+  path: "users/:id",
+  name: "user-detail",
+  component: "user-detail-page",
+  loader: async ({ params, signal }) => {
+    const res = await fetch(`/api/users/${params.id}`, { signal });
+    return res.json();
+  },
+}
+```
+
+The loader receives `{ router, params, query, hash, url, signal }` and runs concurrently with component `load()`. The fetched data is delivered to:
+
+- `router.current.data`
+- `router.getRouteData()`
+- `routeContext.data`
+- `element.data = context.data` (if the element declares a `data` property)
+
 For global progress indicators, listen to:
 
 - `route-loading-start`
 - `route-loading-end`
 
-`event.detail.pending` tells you how many route loads are still in flight.
+`event.detail.pending` tells you how many route loads/loaders are still in flight.
 
 ## Navigation
 
@@ -261,6 +325,59 @@ For replace-style navigation:
 <a href="/settings" data-router-replace>Back To Settings</a>
 ```
 
+### Active Route Matching (`router.isActive`)
+
+Test whether a path, prefix, or named route is active:
+
+```ts
+// Path prefix matching
+router.isActive("/users"); // matches /users, /users/42, etc.
+
+// Exact matching
+router.isActive("/users", { exact: true });
+
+// Named route
+router.isActive("user-detail");
+
+// With parameters and queries
+router.isActive({
+  name: "user-detail",
+  params: { id: "42" },
+  query: { tab: "activity" },
+});
+```
+
+### Declarative Directives (`routerLink` & `activeRoute`)
+
+Lit templates can use declarative directives for seamless link wiring and active states:
+
+```ts
+import { html, LitElement } from "lit";
+import { activeRoute, routerLink } from "@elelcode/lit-router";
+
+html`
+  <!-- Automatically resolves router from DOM context inside <router-view> -->
+  <a ${routerLink("/dashboard", { activeClass: "nav-active", exact: true })}>
+    Dashboard
+  </a>
+
+  <!-- Target named route with params -->
+  <a ${routerLink({ name: "user-detail", params: { id: "42" } })}> User 42 </a>
+
+  <!-- Active indicator on list items -->
+  <li ${activeRoute("/dashboard", { activeClass: "active-tab" })}>
+    <a href="/dashboard">Dashboard</a>
+  </li>
+`;
+```
+
+`routerLink` handles:
+
+- Setting the correct `href`
+- Intercepting same-origin clicks (skipping clicks with modifier keys, `target="_blank"`, `download`, or `data-router-ignore`)
+- Toggling the specified `activeClass`
+- Setting `aria-current="page"` when active for full a11y support
+
 ## Runtime Route Tree Updates
 
 Insert or remove route branches when auth state, permissions, or plugins change:
@@ -270,15 +387,18 @@ router.insertRoutes([
   { path: "admin", name: "admin", component: "admin-page" },
 ]);
 
-router.insertRoutes([
+router.insertRoutes(
+  [
+    {
+      id: "settings-security-plugin",
+      path: "security",
+      component: "settings-security-page",
+    },
+  ],
   {
-    id: "settings-security-plugin",
-    path: "security",
-    component: "settings-security-page",
+    parentId: "settings-shell",
   },
-], {
-  parentId: "settings-shell",
-});
+);
 
 router.removeRoute({ id: "settings-security-plugin" });
 ```
@@ -294,9 +414,7 @@ router.batchRouteUpdates(() => {
   router.insertRoutes([
     { path: "alpha", name: "alpha", component: "alpha-page" },
   ]);
-  router.insertRoutes([
-    { path: "beta", name: "beta", component: "beta-page" },
-  ]);
+  router.insertRoutes([{ path: "beta", name: "beta", component: "beta-page" }]);
 });
 ```
 
@@ -347,6 +465,54 @@ The host element reflects navigation direction via:
 - `data-transition-direction="none"`
 
 Use this for direction-aware View Transition CSS.
+
+## W3C Context Protocol Integration
+
+`<router-view>` acts as a Context Provider adhering to the W3C Context Protocol. It answers `context-request` events for:
+
+- `routerContext`: the active `Router` instance.
+- `routeContext`: the current active `RouteContext` (including params, matched branches, and preloaded data).
+
+### Using with `@lit/context`
+
+```ts
+import { LitElement, html } from "lit";
+import { consume } from "@lit/context";
+import {
+  type RouteContext,
+  type Router,
+  routeContext,
+  routerContext,
+} from "@elelcode/lit-router";
+
+class BreadcrumbBar extends LitElement {
+  @consume({ context: routeContext, subscribe: true })
+  route?: RouteContext;
+
+  render() {
+    return html`
+      <ul>
+        ${this.route?.branch.map(
+          (step) => html`<li>${step.name ?? step.path}</li>`,
+        )}
+      </ul>
+    `;
+  }
+}
+```
+
+## Architecture Comparison with `lit-ui-router`
+
+| Dimension                | `lit-ui-router`                        | `@elelcode/lit-router`                                         |
+| :----------------------- | :------------------------------------- | :------------------------------------------------------------- |
+| **Underlying Engine**    | Heavy `@uirouter/core` state machine   | **Native Navigation API + URLPattern**                         |
+| **View Organization**    | Custom `<ui-view>` component hierarchy | **Native `<slot>` elements** with parallel projection          |
+| **Transition Animation** | Simulated transitions                  | **Native `View Transitions API`**                              |
+| **Directives**           | `uiSref`                               | **`routerLink` & `activeRoute`** with automatic `aria-current` |
+| **Data Fetching**        | State machine `resolve`                | **Concurrent `loader`** with AbortSignal cancellation          |
+| **Leave Guards**         | `uiCanExit`                            | **Component `beforeRouteLeave`** + `registerLeaveGuard`        |
+| **Context Sharing**      | `@lit/context` with extra bridge code  | **Native W3C Context Protocol** with 0 runtime dependencies    |
+| **Bundle Size**          | **> 300KB** (> 90KB gzip)              | **~60KB** (**~15KB gzip**)                                     |
 
 ## Events
 

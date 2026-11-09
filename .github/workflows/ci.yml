@@ -13,24 +13,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: denoland/setup-deno@v2
+      - uses: actions/setup-node@v4
         with:
-          deno-version: v2.x
+          node-version: 22
+          cache: "npm"
 
-      - name: Check formatting
-        run: deno task fmt:check
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Lint
-        run: deno task lint
-
-      - name: Check sources
-        run: deno task check
+      - name: Check types
+        run: npm run typecheck
 
       - name: Run unit tests
-        run: deno task test
+        run: npm test
 
-      - name: Verify JSR package
-        run: deno publish --dry-run --allow-dirty
+      - name: Build package
+        run: npm run build
+
+      - name: Verify package
+        run: npm pack --dry-run
 
   e2e:
     runs-on: ubuntu-latest
@@ -38,40 +39,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: denoland/setup-deno@v2
+      - uses: actions/setup-node@v4
         with:
-          deno-version: v2.x
+          node-version: 22
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Build E2E bundle
-        run: |
-          deno cache npm:@jsr/elelcode__lit-router@1.0.3
-          mkdir -p .tmp-e2e dist-e2e
-          deno eval '
-            await Deno.writeTextFile(
-              ".tmp-e2e/entry.js",
-              "export * from \"@jsr/elelcode__lit-router\";\n",
-            );
-            await Deno.writeTextFile(
-              ".tmp-e2e/vite.config.mjs",
-              `export default {
-                build: {
-                  target: "es2018",
-                  emptyOutDir: true,
-                  outDir: "dist-e2e",
-                  lib: {
-                    entry: ".tmp-e2e/entry.js",
-                    formats: ["es"],
-                    fileName: () => "router.bundle.js",
-                  },
-                },
-              };\n`,
-            );
-          '
-          deno run -A npm:vite@^8.0.5 build . --config .tmp-e2e/vite.config.mjs --configLoader native
-          rm -rf .tmp-e2e
+        run: npm run build:e2e
 
       - name: Install Chromium
         run: sudo apt-get update -qq && sudo apt-get install -y -qq chromium-browser
 
       - name: Run E2E tests
-        run: PUPPETEER_EXECUTABLE_PATH=$(which chromium-browser) deno test -A tests/e2e/e2e_test.ts
+        run: PUPPETEER_EXECUTABLE_PATH=$(which chromium-browser) npm run test:e2e
