@@ -1,3 +1,4 @@
+import "urlpattern-polyfill";
 import { Window } from "happy-dom";
 import { expect } from "vitest";
 
@@ -328,6 +329,14 @@ function installDomGlobals(dom: Window): void {
       configurable: true,
       writable: true,
       value: dom[key],
+    });
+  }
+
+  if (typeof globalThis.URLPattern !== "undefined" && !("URLPattern" in dom)) {
+    Object.defineProperty(dom, "URLPattern", {
+      configurable: true,
+      writable: true,
+      value: globalThis.URLPattern,
     });
   }
 }
