@@ -1,6 +1,19 @@
 # Changelog
 
-## 2.1.2 (2026-11-09)
+## 2.1.3 (2026-11-09)
+
+### Fixed
+
+- **Side-Slot Route Context Updates**: Track subscriber slot metadata and element locations, ensuring components inside parallel side slots receive their corresponding slot context (`params`, `slot`, `branch`, and `data`) across route updates rather than being overwritten by default child slot context.
+- **ChildSlot Property Remount**: Changing `childSlot` property on `<router-view>` now properly remounts active route branches into the updated slot instead of leaving an empty viewport.
+- **Component Data State Resetting**: When navigating from a route with loader data to a route without loader data, reused view elements now have their `data` property safely cleared to `undefined`, preventing stale data retention while preserving component default values and `props.data`.
+- **RouteLoadContext Parity for `route.load`**: `route.load` now receives full `RouteLoadContext` containing `signal`, `router`, `pathname`, `localPathname`, `params`, `query`, `hash`, and `url`, matching the rich context available to `route.loader`.
+- **Targeting Routes by `id` in `RouteLocation`**: `RouteLocation` now accepts `id?: string`, enabling `router.push({ id: "profile" })`, `router.replace({ id: "profile" })`, and `router.link({ id: "profile" })`. Added `router.resolveId(id, options)` for programmatic route ID matching.
+- **Merged Query Matching in `isActive`**: `router.isActive()` now merges `target.query` with `options.query` via `mergeQueries`, ensuring multi-param query constraints are evaluated consistently.
+- **URL-Decoded Param Comparison in `isActive`**: Param matching in `isActive` now compares decoded segments alongside raw strings, matching encoded and decoded representations accurately.
+- **Rel='external' Click Bypass**: Anchor clicks marked with `rel="external"` are now skipped by document-level click interception and `routerLink`, preserving native navigation for external resources.
+- **Directive Reconnection Context Restoration**: `routerLink` and `activeRoute` directives now re-subscribe to W3C Context protocol and re-attach route listeners upon reconnection in the DOM, preventing lost reactivity when components are detached and re-attached.
+- **Safe Scroll Restoration and Anchor Fallback**: `ScrollManager.prototype.restore` now safely verifies `scrollIntoView` function existence and supports standard HTML `<a name="...">` anchor fragments.
 
 ### Fixed
 

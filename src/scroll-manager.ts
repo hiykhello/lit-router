@@ -104,10 +104,21 @@ export class ScrollManager {
     }
 
     if (activeUrl.hash) {
-      const target = browserDocument().getElementById(
-        decodeHashFragment(activeUrl.hash.slice(1)),
-      );
-      if (target) {
+      const fragment = decodeHashFragment(activeUrl.hash.slice(1));
+      let target: Element | null = null;
+      if (fragment) {
+        target = browserDocument().getElementById(fragment);
+        if (!target) {
+          try {
+            target = browserDocument().querySelector(
+              `a[name="${CSS?.escape ? CSS.escape(fragment) : fragment}"]`,
+            );
+          } catch {
+            // ignore invalid selector error
+          }
+        }
+      }
+      if (target && typeof target.scrollIntoView === "function") {
         target.scrollIntoView();
         return;
       }

@@ -85,7 +85,10 @@ export class RouterView extends LitElement {
   private pendingCommitDetail?: RouterChangeDetail;
   private unregisterLeaveGuard?: () => void;
   private readonly routerSubscribers = new Set<ContextCallback<Router>>();
-  private readonly routeSubscribers = new Set<ContextCallback<RouteContext>>();
+  private readonly routeSubscribers = new Map<
+    ContextCallback<RouteContext>,
+    { element?: Node; slot: string }
+  >();
 
   connectedCallback(): void {
     super.connectedCallback();
@@ -130,10 +133,7 @@ export class RouterView extends LitElement {
 
     if (changed.has("childSlot") && this.activeDetail.branch.length > 0) {
       this.renderedBranches.clear();
-      this.mountBranch({
-        ...this.activeDetail,
-        branch: [],
-      });
+      this.mountBranch(this.activeDetail);
     }
   }
 
@@ -340,8 +340,9 @@ export class RouterView extends LitElement {
         );
       };
       if (request.subscribe) {
-        this.routeSubscribers.add(
+        this.routeSubscribers.set(
           request.callback as ContextCallback<RouteContext>,
+          { element: target, slot: slotName },
         );
       }
       request.callback(currentRouteCtx, unsubscribe);
@@ -362,14 +363,47 @@ export class RouterView extends LitElement {
   }
 
   private notifyRouteSubscribers(): void {
-    const currentRouteCtx: RouteContext = {
-      detail: this.activeDetail,
-      params: this.activeDetail.params,
-      slot: DEFAULT_CHILD_SLOT,
-      branch: this.activeDetail.branch,
-      data: this.activeDetail.data,
-    };
-    for (const callback of this.routeSubscribers) {
+    const detail = this.activeDetail;
+    for (const [callback, meta] of this.routeSubscribers) {
+      if (meta.element && !meta.element.isConnected) {
+        this.routeSubscribers.delete(callback);
+        continue;
+      }
+
+      let slotName = meta.slot;
+      if (meta.element) {
+        for (const [slot, elements] of this.renderedBranches) {
+          if (
+            elements.some(
+              (el) => el === meta.element || el.contains(meta.element!),
+            )
+          ) {
+            slotName = slot;
+            break;
+          }
+        }
+      }
+
+      const slotBranch =
+        slotName === DEFAULT_CHILD_SLOT
+          ? detail.branch
+          : (detail.slotBranches?.[slotName] ?? detail.branch);
+      const slotParams =
+        slotName === DEFAULT_CHILD_SLOT
+          ? detail.params
+          : (detail.slotParams?.[slotName] ?? detail.params);
+      const slotLeaf = slotBranch[slotBranch.length - 1];
+      const slotData =
+        (slotLeaf && detail.routeData?.get(slotLeaf)) ?? detail.data;
+
+      const currentRouteCtx: RouteContext = {
+        detail,
+        params: slotParams,
+        slot: slotName,
+        branch: slotBranch,
+        data: slotData,
+      };
+
       const unsubscribe = () => {
         this.routeSubscribers.delete(callback);
       };
@@ -852,7 +886,7 @@ export class RouterView extends LitElement {
     };
     const assignProps = () => {
       Object.assign(element, route.props ?? {});
-      this.applyRouteContext(element, routeContext);
+      this.applyRouteContext(element, routeContext, route);
     };
 
     const customElementsRegistry = browserWindow().customElements;
@@ -869,11 +903,25 @@ export class RouterView extends LitElement {
     assignProps();
   }
 
-  private applyRouteContext(element: HTMLElement, context: RouteContext): void {
-    const receiver = element as HTMLElement & RouteContextReceiver;
+  private applyRouteContext(
+    element: HTMLElement,
+    context: RouteContext,
+    route: RouteDefinition,
+  ): void {
+    const receiver = element as HTMLElement &
+      RouteContextReceiver & { __lit_router_data_set?: boolean };
 
-    if (context.data !== undefined && "data" in element) {
-      receiver.data = context.data;
+    if (context.data !== undefined) {
+      if ("data" in element) {
+        receiver.data = context.data;
+        receiver.__lit_router_data_set = true;
+      }
+    } else if (
+      receiver.__lit_router_data_set &&
+      (!route.props || !("data" in route.props))
+    ) {
+      receiver.data = undefined;
+      receiver.__lit_router_data_set = false;
     }
 
     if (typeof receiver.setRouteContext === "function") {

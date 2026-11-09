@@ -62,17 +62,42 @@ function shouldHandleClick(event: MouseEvent, element: Element): boolean {
   if (target && target !== "_self") {
     return false;
   }
-  let current: Element | null = event.target as Element | null;
-  while (current && current !== element.parentElement) {
-    if (
-      current.hasAttribute?.("data-router-ignore") ||
-      current.hasAttribute?.("download") ||
-      current.hasAttribute?.("disabled") ||
-      current.getAttribute?.("aria-disabled") === "true"
-    ) {
-      return false;
+  const rel = element.getAttribute("rel");
+  if (rel && rel.split(/\s+/).includes("external")) {
+    return false;
+  }
+
+  const path =
+    typeof event.composedPath === "function" ? event.composedPath() : [];
+  if (path.length > 0) {
+    for (const item of path) {
+      if (item instanceof Element) {
+        if (
+          item.hasAttribute("data-router-ignore") ||
+          item.hasAttribute("download") ||
+          item.hasAttribute("disabled") ||
+          item.getAttribute("aria-disabled") === "true"
+        ) {
+          return false;
+        }
+      }
+      if (item === element) {
+        break;
+      }
     }
-    current = current.parentElement;
+  } else {
+    let current: Element | null = event.target as Element | null;
+    while (current && current !== element.parentElement) {
+      if (
+        current.hasAttribute?.("data-router-ignore") ||
+        current.hasAttribute?.("download") ||
+        current.hasAttribute?.("disabled") ||
+        current.getAttribute?.("aria-disabled") === "true"
+      ) {
+        return false;
+      }
+      current = current.parentElement;
+    }
   }
   return true;
 }
@@ -85,7 +110,7 @@ function mergeTargetOptions(
     typeof target === "object" &&
     target !== null &&
     !(target instanceof URL) &&
-    "name" in target
+    ("name" in target || "id" in target)
   ) {
     return {
       ...target,
@@ -109,6 +134,7 @@ class RouterLinkDirective extends AsyncDirective {
   private unsubscribeContext?: () => void;
   private listeningRouter?: Router;
   private lastActiveClass?: string;
+  private isExplicitRouter = false;
 
   constructor(partInfo: PartInfo) {
     super(partInfo);
@@ -153,20 +179,24 @@ class RouterLinkDirective extends AsyncDirective {
     this.options = optionsArg ?? {};
 
     if (routerArg) {
+      this.isExplicitRouter = true;
       this.unsubscribeContext?.();
       this.unsubscribeContext = undefined;
       this.setRouter(routerArg);
-    } else if (!this.router) {
-      this.seekRouter();
-      if (!this.element.isConnected) {
-        queueMicrotask(() => {
-          if (!this.router && this.element?.isConnected) {
-            this.seekRouter();
-          }
-        });
-      }
     } else {
-      this.applyState();
+      this.isExplicitRouter = false;
+      if (!this.router) {
+        this.seekRouter();
+        if (!this.element.isConnected) {
+          queueMicrotask(() => {
+            if (!this.router && this.element?.isConnected) {
+              this.seekRouter();
+            }
+          });
+        }
+      } else {
+        this.applyState();
+      }
     }
 
     return noChange;
@@ -189,6 +219,7 @@ class RouterLinkDirective extends AsyncDirective {
 
   private setRouter(router: Router): void {
     if (this.router === router) {
+      this.attachRouterListener();
       this.applyState();
       return;
     }
@@ -200,7 +231,7 @@ class RouterLinkDirective extends AsyncDirective {
   }
 
   private attachRouterListener(): void {
-    if (!this.router) {
+    if (!this.router || this.listeningRouter === this.router) {
       return;
     }
     this.router.addEventListener("route-change", this.onRouteChange);
@@ -333,7 +364,7 @@ class RouterLinkDirective extends AsyncDirective {
   }
 
   override reconnected(): void {
-    if (this.element && !this.router) {
+    if (this.element && (!this.isExplicitRouter || !this.router)) {
       this.seekRouter();
     } else if (this.router) {
       this.attachRouterListener();
@@ -366,6 +397,7 @@ class ActiveRouteDirective extends AsyncDirective {
   private unsubscribeContext?: () => void;
   private listeningRouter?: Router;
   private lastActiveClass?: string;
+  private isExplicitRouter = false;
 
   constructor(partInfo: PartInfo) {
     super(partInfo);
@@ -413,20 +445,24 @@ class ActiveRouteDirective extends AsyncDirective {
     this.options = optionsArg ?? {};
 
     if (routerArg) {
+      this.isExplicitRouter = true;
       this.unsubscribeContext?.();
       this.unsubscribeContext = undefined;
       this.setRouter(routerArg);
-    } else if (!this.router) {
-      this.seekRouter();
-      if (!this.element.isConnected) {
-        queueMicrotask(() => {
-          if (!this.router && this.element?.isConnected) {
-            this.seekRouter();
-          }
-        });
-      }
     } else {
-      this.updateActiveStatus();
+      this.isExplicitRouter = false;
+      if (!this.router) {
+        this.seekRouter();
+        if (!this.element.isConnected) {
+          queueMicrotask(() => {
+            if (!this.router && this.element?.isConnected) {
+              this.seekRouter();
+            }
+          });
+        }
+      } else {
+        this.updateActiveStatus();
+      }
     }
 
     return noChange;
@@ -449,6 +485,7 @@ class ActiveRouteDirective extends AsyncDirective {
 
   private setRouter(router: Router): void {
     if (this.router === router) {
+      this.attachRouterListener();
       this.updateActiveStatus();
       return;
     }
@@ -460,7 +497,7 @@ class ActiveRouteDirective extends AsyncDirective {
   }
 
   private attachRouterListener(): void {
-    if (!this.router) {
+    if (!this.router || this.listeningRouter === this.router) {
       return;
     }
     this.router.addEventListener("route-change", this.onRouteChange);
@@ -534,7 +571,7 @@ class ActiveRouteDirective extends AsyncDirective {
   }
 
   override reconnected(): void {
-    if (this.element && !this.router) {
+    if (this.element && (!this.isExplicitRouter || !this.router)) {
       this.seekRouter();
     } else if (this.router) {
       this.attachRouterListener();

@@ -921,3 +921,301 @@ test("routerLink handles multiple space-separated classes and empty string safel
     assertEquals(router.current.localPathname, "/home");
   });
 });
+
+test("router-view notifies side-slot context subscribers with slot-aware RouteContext", async () => {
+  await withRouters(async (createRouter) => {
+    const router = createRouter({
+      routes: [
+        {
+          path: "app",
+          component: "div",
+          children: [
+            { path: "users/:id", component: "div" },
+            {
+              path: "users/:id",
+              slot: "sidebar",
+              component: "div",
+            },
+          ],
+        },
+      ],
+    });
+
+    const dom = browser();
+    const view = dom.document.createElement("router-view") as RouterView & {
+      router?: Router;
+      shadowRoot: ShadowRoot | null;
+    };
+    view.router = router;
+    dom.document.body.append(view);
+    await settle(view);
+
+    router.push("/app/users/42");
+    await settle(view);
+
+    // Subscribe from an element inside the view
+    let receivedSlot = "";
+    let receivedParam = "";
+    const childEl = dom.document.createElement("div");
+    view.append(childEl);
+
+    // Test context request
+    const unsub = requestContext(
+      childEl,
+      routeContext,
+      (ctx) => {
+        receivedSlot = ctx.slot;
+        receivedParam = ctx.params.id ?? "";
+      },
+      true,
+    );
+
+    // Initial receive
+    assertEquals(receivedSlot, "route-child");
+    assertEquals(receivedParam, "42");
+
+    unsub();
+  });
+});
+
+test("router-view resets stale data property when navigating to route without loader data", async () => {
+  await withRouters(async (createRouter) => {
+    const router = createRouter({
+      routes: [
+        {
+          path: "users/detail",
+          component: "test-ext-data-view",
+          loader: () => ({ name: "Alice" }),
+        },
+        {
+          path: "users/create",
+          component: "test-ext-data-view",
+        },
+      ],
+    });
+
+    const dom = browser();
+    if (!dom.customElements.get("test-ext-data-view")) {
+      dom.customElements.define(
+        "test-ext-data-view",
+        class extends dom.HTMLElement {
+          data?: unknown;
+        },
+      );
+    }
+
+    const view = dom.document.createElement("router-view") as RouterView & {
+      router?: Router;
+      shadowRoot: ShadowRoot | null;
+    };
+    view.router = router;
+    dom.document.body.append(view);
+    await settle(view);
+
+    router.push("/users/detail");
+    await settle(view);
+
+    const el1 = view.shadowRoot?.querySelector("test-ext-data-view") as
+      (HTMLElement & { data?: unknown }) | null;
+    assert(el1);
+    assertEquals((el1.data as { name: string })?.name, "Alice");
+
+    router.push("/users/create");
+    await settle(view);
+
+    const el2 = view.shadowRoot?.querySelector("test-ext-data-view") as
+      (HTMLElement & { data?: unknown }) | null;
+    assert(el2);
+    // Data must be safely cleared to undefined rather than keeping stale "Alice"
+    assertEquals(el2.data, undefined);
+  });
+});
+
+test("route.load receives RouteLoadContext with params, pathname, query, and signal", async () => {
+  await withRouters(async (createRouter) => {
+    let capturedContext: unknown = null;
+
+    const router = createRouter({
+      routes: [
+        {
+          path: "posts/:slug",
+          component: "test-ext-page",
+          load: async (ctx) => {
+            capturedContext = ctx;
+          },
+        },
+      ],
+    });
+
+    const dom = browser();
+    const view = dom.document.createElement("router-view") as RouterView & {
+      router?: Router;
+    };
+    view.router = router;
+    dom.document.body.append(view);
+    await settle(view);
+
+    router.push("/posts/hello-world?sort=desc#comments");
+    await settle(view);
+
+    assert(capturedContext);
+    const ctx = capturedContext as {
+      pathname: string;
+      params: Record<string, string>;
+      query: URLSearchParams;
+      hash: string;
+      signal: AbortSignal;
+    };
+    assertEquals(ctx.pathname, "/posts/hello-world");
+    assertEquals(ctx.params.slug, "hello-world");
+    assertEquals(ctx.query.get("sort"), "desc");
+    assertEquals(ctx.hash, "#comments");
+    assertEquals(typeof ctx.signal.aborted, "boolean");
+  });
+});
+
+test("router navigation and linking supports RouteLocation with route id", async () => {
+  await withRouters(async (createRouter) => {
+    const router = createRouter({
+      routes: [
+        {
+          id: "user-profile",
+          path: "users/:userId",
+          component: "test-ext-page",
+        },
+      ],
+    });
+
+    const link = router.link({ id: "user-profile", params: { userId: "456" } });
+    assertEquals(link, "/users/456");
+
+    const resolved = router.resolveId("user-profile", {
+      params: { userId: "456" },
+    });
+    assert(resolved);
+    assertEquals(resolved.pathname, "/users/456");
+
+    router.push({ id: "user-profile", params: { userId: "456" } });
+    await settle();
+
+    assertEquals(router.current.pathname, "/users/456");
+    assertEquals(
+      router.isActive({ id: "user-profile", params: { userId: "456" } }),
+      true,
+    );
+  });
+});
+
+test("router.isActive matches merged queries and decoded param values", async () => {
+  await withRouters(async (createRouter) => {
+    const router = createRouter({
+      routes: [
+        {
+          name: "search",
+          path: "search/:category",
+          component: "test-ext-page",
+        },
+      ],
+    });
+
+    router.push("/search/books%20and%20magazines?lang=en&sort=new");
+    await settle();
+
+    // Query in location merged with options
+    assertEquals(
+      router.isActive(
+        { name: "search", query: { lang: "en" } },
+        { query: { sort: "new" } },
+      ),
+      true,
+    );
+
+    // Decoded vs encoded param value comparison
+    assertEquals(
+      router.isActive({
+        name: "search",
+        params: { category: "books and magazines" },
+      }),
+      true,
+    );
+    assertEquals(
+      router.isActive({
+        name: "search",
+        params: { category: "books%20and%20magazines" },
+      }),
+      true,
+    );
+  });
+});
+
+test("router ignores click when anchor has rel='external'", async () => {
+  await withRouters(async (createRouter) => {
+    const router = createRouter({
+      routes: [{ path: "*", component: "test-ext-page" }],
+    });
+
+    const dom = browser();
+    const anchor = dom.document.createElement("a");
+    anchor.href = "/external-page";
+    anchor.rel = "external noopener";
+    anchor.textContent = "External";
+    dom.document.body.append(anchor);
+    await settle();
+
+    anchor.dispatchEvent(
+      new dom.MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+      }),
+    );
+    await settle();
+
+    // Router should NOT have navigated to /external-page
+    assertEquals(router.current.pathname, "/");
+  });
+});
+
+test("routerLink directive re-subscribes to context when element is reconnected", async () => {
+  await withRouters(async (createRouter) => {
+    const router = createRouter({
+      routes: [
+        { path: "home", component: "test-ext-page" },
+        { path: "profile", component: "test-ext-page" },
+      ],
+    });
+
+    const dom = browser();
+    const view = dom.document.createElement("router-view") as RouterView;
+    view.router = router;
+    dom.document.body.append(view);
+    await settle(view);
+
+    router.push("/home");
+    await settle(view);
+
+    const host = dom.document.createElement("div");
+    view.append(host);
+    render(
+      html`<a ${routerLink("/home", { activeClass: "active" })}>Home</a>`,
+      host,
+    );
+    await settle(view);
+
+    const anchor = host.querySelector("a")!;
+    assertEquals(anchor.classList.contains("active"), true);
+
+    // Disconnect and reconnect element
+    host.remove();
+    await settle(view);
+    view.append(host);
+    await settle(view);
+
+    // Navigate to /profile
+    router.push("/profile");
+    await settle(view);
+
+    // Active status should update correctly through reconnected subscription
+    assertEquals(anchor.classList.contains("active"), false);
+  });
+});

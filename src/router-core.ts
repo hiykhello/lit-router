@@ -16,7 +16,8 @@ export type RouteQueryInit =
   | URLSearchParams
   | Record<string, RouteQueryValue | RouteQueryValue[] | null | undefined>;
 export interface RouteLocation {
-  name: string;
+  name?: string;
+  id?: string;
   params?: RouteParamsInput;
   query?: RouteQueryInit;
   hash?: string;
@@ -662,6 +663,19 @@ function isSameDetail(
     return false;
   }
 
+  const currentSlotParams = current.slotParams ?? {};
+  const nextSlotParams = next.slotParams ?? {};
+  for (const slotName of currentSlotNames) {
+    if (
+      !shallowEqualRecord(
+        currentSlotParams[slotName] ?? {},
+        nextSlotParams[slotName] ?? {},
+      )
+    ) {
+      return false;
+    }
+  }
+
   return currentSlotNames.every((slotName, index) => {
     if (slotName !== nextSlotNames[index]) {
       return false;
@@ -1217,6 +1231,31 @@ function toSearchParams(query?: RouteQueryInit): URLSearchParams {
   return searchParams;
 }
 
+function mergeQueries(
+  base?: RouteQueryInit,
+  override?: RouteQueryInit,
+): URLSearchParams | undefined {
+  if (!base && !override) {
+    return undefined;
+  }
+  const result = toSearchParams(base);
+  if (override) {
+    const overrideParams = toSearchParams(override);
+    const seen = new Set<string>();
+    for (const key of overrideParams.keys()) {
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      result.delete(key);
+      for (const val of overrideParams.getAll(key)) {
+        result.append(key, val);
+      }
+    }
+  }
+  return result;
+}
+
 function createSearchString(query?: RouteQueryInit): string {
   const params = toSearchParams(query);
   const search = params.toString();
@@ -1418,6 +1457,11 @@ export class Router extends EventTarget {
 
     const target = anchor.getAttribute("target");
     if (target && target !== "_self") {
+      return;
+    }
+
+    const rel = anchor.getAttribute("rel");
+    if (rel && rel.split(/\s+/).includes("external")) {
       return;
     }
 
@@ -1727,6 +1771,13 @@ export class Router extends EventTarget {
     return this.resolveMatched(this.toRouteUrl({ name, ...options }));
   }
 
+  resolveId(
+    id: string,
+    options: RouteResolveOptions = {},
+  ): RouterChangeDetail | null {
+    return this.resolveMatched(this.toRouteUrl({ id, ...options }));
+  }
+
   link(target: RouteTarget): string {
     const url = this.toRouteUrl(target);
     return `${url.pathname}${url.search}${url.hash}`;
@@ -1770,10 +1821,17 @@ export class Router extends EventTarget {
         if (!isMatch) {
           return false;
         }
+        const location = target as RouteLocation;
+        const combinedParams = {
+          ...location.params,
+          ...options.params,
+        };
+        const combinedQuery = mergeQueries(location.query, options.query);
+        const targetHash = location.hash ?? options.hash;
         return this.matchesParamsAndQuery(
-          options.params,
-          options.query,
-          options.hash,
+          combinedParams,
+          combinedQuery,
+          targetHash,
         );
       }
 
@@ -1790,7 +1848,7 @@ export class Router extends EventTarget {
           ...location.params,
           ...options.params,
         };
-        const combinedQuery = location.query ?? options.query;
+        const combinedQuery = mergeQueries(location.query, options.query);
         const targetHash = location.hash ?? options.hash;
         return this.matchesParamsAndQuery(
           combinedParams,
@@ -1880,10 +1938,16 @@ export class Router extends EventTarget {
           continue;
         }
         const valStr = String(value);
-        let paramMatched = this.current.params[key] === valStr;
+        const decodedVal = decodeSegment(valStr);
+        const matchesVal = (currentVal: string | undefined) =>
+          currentVal === valStr ||
+          (currentVal !== undefined &&
+            decodeSegment(currentVal) === decodedVal);
+
+        let paramMatched = matchesVal(this.current.params[key]);
         if (!paramMatched && this.current.slotParams) {
           for (const sp of Object.values(this.current.slotParams)) {
-            if (sp[key] === valStr) {
+            if (matchesVal(sp[key])) {
               paramMatched = true;
               break;
             }
@@ -2140,7 +2204,9 @@ export class Router extends EventTarget {
       return new URL(target, this.current.url.href);
     }
 
-    const branch = this.resolveNamedRouteBranch(target.name);
+    const branch = target.id
+      ? this.resolveRouteIdBranch(target.id)
+      : this.resolveNamedRouteBranch(target.name ?? "");
     const localPathname = buildLocalPathname(branch, target.params);
     const pathname = this.withBasePath(localPathname);
     const href = `${pathname}${createSearchString(target.query)}${normalizeHash(
@@ -2579,7 +2645,7 @@ export class Router extends EventTarget {
 
     try {
       for (const branch of detailBranches(detail)) {
-        await this.loadBranch(branch, signal);
+        await this.loadBranch(branch, signal, detail);
       }
 
       const routeData = new Map<RouteDefinition, unknown>();
@@ -2858,6 +2924,7 @@ export class Router extends EventTarget {
   private async loadBranch(
     branch: RouteDefinition[],
     signal: AbortSignal,
+    detail?: RouterChangeDetail,
   ): Promise<void> {
     for (const route of branch) {
       if (signal.aborted) {
@@ -2874,8 +2941,24 @@ export class Router extends EventTarget {
         continue;
       }
 
+      const slot = route.slot || DEFAULT_CHILD_SLOT;
+      const params =
+        slot !== DEFAULT_CHILD_SLOT && detail?.slotParams?.[slot]
+          ? detail.slotParams[slot]
+          : (detail?.params ?? {});
+      const loadContext: RouteLoadContext = {
+        signal,
+        router: this,
+        pathname: detail?.pathname ?? "",
+        localPathname: detail?.localPathname ?? "",
+        params,
+        query: detail?.query ?? new URLSearchParams(),
+        hash: detail?.hash ?? "",
+        url: detail?.url ?? new URL("about:blank"),
+      };
+
       const loadPromise = Promise.resolve()
-        .then(() => route.load?.({ signal }))
+        .then(() => route.load?.(loadContext))
         .then(() => {
           this.loadedRoutes.add(route);
         })
