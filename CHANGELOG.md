@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.1.6 (2026-11-09)
+
+### Fixed
+
+- **Empty and Whitespace String Target Handling**: Calling `router.link("")`, `router.push("")`, `router.resolve("")`, or `router.isActive("")` with empty or whitespace-only strings now safely resolves to the current URL rather than throwing an uncaught `Route name must be a non-empty string` error.
+- **Hierarchical Ancestor Data Inheritance in Side Slots**: Route elements and context subscribers in parallel side slots now gracefully inherit loader data from ancestor routes in the same side-slot branch when the leaf route defines no loader, rather than incorrectly defaulting directly to the main branch's data.
+- **Document Click Interception Hardening**: Document click interception now checks `typeof event.composedPath === 'function'` with fallback tree traversal for environments without native composedPath, and wraps `new URL(href)` in try/catch to gracefully skip malformed or invalid URIs without throwing unhandled exceptions.
+- **Full RouteLocation Merging in Directives**: `mergeTargetOptions` in `routerLink` and `activeRoute` directives now merges `params`, `query`, and `hash` on any `RouteLocation` object without requiring explicit `name` or `id` properties.
+
+### Added
+
+- **Hierarchical Merged Route Meta**: `RouterChangeDetail` and `RouteContext` now expose `meta: RouteMeta`, representing the shallow-merged route metadata accumulated from root to leaf along the active branch.
+- **Dynamic Route Title Functions**: Route definitions now support dynamic title functions `title?: string | ((detail: RouterChangeDetail) => string)`, allowing document titles to be dynamically generated from route data, params, or navigation details.
+
 ## 2.1.5 (2026-11-09)
 
 ### Fixed

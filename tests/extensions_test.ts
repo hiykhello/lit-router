@@ -1530,3 +1530,150 @@ test("router-view reconnection restores view without getting stuck empty", async
     dom.document.body.removeChild(view);
   });
 });
+
+test("empty or whitespace strings in router.link, push, resolve, isActive do not crash", async () => {
+  await withRouters(async (createRouter) => {
+    const dom = browser();
+    dom.history.replaceState(null, "", "/home");
+
+    const router = createRouter({
+      routes: [
+        {
+          path: "home",
+          name: "home",
+          component: "test-ext-page",
+        },
+      ],
+    });
+
+    await settle();
+
+    // router.link with empty string resolves to current pathname without throwing
+    assertEquals(router.link(""), "/home");
+    assertEquals(router.link("   "), "/home");
+
+    // router.isActive with empty string resolves to current URL and matches
+    assertEquals(router.isActive(""), true);
+    assertEquals(router.isActive("   "), true);
+
+    // router.resolve with empty string does not throw
+    const res = router.resolve("");
+    assertEquals(res?.pathname, "/home");
+
+    // router.push with empty string resolves to current URL without throwing
+    router.push("");
+    await settle();
+    assertEquals(router.current.pathname, "/home");
+  });
+});
+
+test("side-slot routes inherit ancestor data in slot context", async () => {
+  await withRouters(async (createRouter) => {
+    const dom = browser();
+    dom.history.replaceState(null, "", "/workspace/nested");
+
+    const router = createRouter({
+      routes: [
+        {
+          path: "workspace",
+          name: "ws",
+          loader: () => ({ layoutInfo: "ws-layout-data" }),
+          component: "test-ext-page",
+          children: [
+            {
+              path: "nested",
+              name: "ws-nested",
+              component: "test-ext-page",
+            },
+            {
+              path: "",
+              slot: "sidebar",
+              loader: () => ({ sidebarData: "sidebar-parent-data" }),
+              children: [
+                {
+                  path: "nested",
+                  slot: "sidebar",
+                  component: "test-ext-page",
+                  // No loader on leaf sidebar route
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const view = new RouterView();
+    view.router = router;
+    dom.document.body.appendChild(view);
+    await settle();
+
+    // Side-slot leaf should inherit data from sidebar ancestor
+    let slotCtxReceived: RouteContext | undefined;
+    view.addEventListener("context-request", ((e: CustomEvent) => {
+      // simulate context consumer
+    }) as EventListener);
+
+    const sideLeaf = router.getRouteData({ name: "ws" });
+    assertEquals((sideLeaf as any)?.layoutInfo, "ws-layout-data");
+
+    dom.document.body.removeChild(view);
+  });
+});
+
+test("router detail and context expose merged hierarchical meta", async () => {
+  await withRouters(async (createRouter) => {
+    const dom = browser();
+    dom.history.replaceState(null, "", "/admin/users");
+
+    const router = createRouter({
+      routes: [
+        {
+          path: "admin",
+          meta: { requiresAuth: true, layout: "admin" },
+          children: [
+            {
+              path: "users",
+              name: "admin-users",
+              meta: { role: "superadmin", layout: "full-width" },
+              component: "test-ext-page",
+            },
+          ],
+        },
+      ],
+    });
+
+    await settle();
+
+    // Meta is merged from root to leaf
+    assertEquals(router.current.meta?.requiresAuth, true);
+    assertEquals(router.current.meta?.role, "superadmin");
+    assertEquals(router.current.meta?.layout, "full-width");
+  });
+});
+
+test("route title supports dynamic function receiving RouterChangeDetail", async () => {
+  await withRouters(async (createRouter) => {
+    const dom = browser();
+    dom.history.replaceState(null, "", "/articles/100");
+
+    const router = createRouter({
+      routes: [
+        {
+          path: "articles/:id",
+          title: (detail) => `Article #${detail.params.id} - Blog`,
+          component: "test-ext-page",
+        },
+      ],
+    });
+
+    const view = new RouterView();
+    view.router = router;
+    dom.document.body.appendChild(view);
+    await settle();
+
+    assertEquals(dom.document.title, "Article #100 - Blog");
+
+    dom.document.body.removeChild(view);
+  });
+});

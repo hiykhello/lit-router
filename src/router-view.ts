@@ -342,9 +342,19 @@ export class RouterView extends LitElement {
         slotName === DEFAULT_CHILD_SLOT
           ? detail.params
           : (detail.slotParams?.[slotName] ?? detail.params);
-      const slotLeaf = slotBranch[slotBranch.length - 1];
-      const slotData =
-        (slotLeaf && detail.routeData?.get(slotLeaf)) ?? detail.data;
+      let slotData: unknown = undefined;
+      if (detail.routeData) {
+        for (let i = slotBranch.length - 1; i >= 0; i--) {
+          const r = slotBranch[i];
+          if (r && detail.routeData.has(r)) {
+            slotData = detail.routeData.get(r);
+            break;
+          }
+        }
+      }
+      if (slotData === undefined) {
+        slotData = detail.data;
+      }
 
       const currentRouteCtx: RouteContext = {
         detail,
@@ -352,6 +362,7 @@ export class RouterView extends LitElement {
         slot: slotName,
         branch: slotBranch,
         data: slotData,
+        meta: detail.meta,
       };
 
       const unsubscribe = () => {
@@ -412,9 +423,19 @@ export class RouterView extends LitElement {
         slotName === DEFAULT_CHILD_SLOT
           ? detail.params
           : (detail.slotParams?.[slotName] ?? detail.params);
-      const slotLeaf = slotBranch[slotBranch.length - 1];
-      const slotData =
-        (slotLeaf && detail.routeData?.get(slotLeaf)) ?? detail.data;
+      let slotData: unknown = undefined;
+      if (detail.routeData) {
+        for (let i = slotBranch.length - 1; i >= 0; i--) {
+          const r = slotBranch[i];
+          if (r && detail.routeData.has(r)) {
+            slotData = detail.routeData.get(r);
+            break;
+          }
+        }
+      }
+      if (slotData === undefined) {
+        slotData = detail.data;
+      }
 
       const currentRouteCtx: RouteContext = {
         detail,
@@ -422,6 +443,7 @@ export class RouterView extends LitElement {
         slot: slotName,
         branch: slotBranch,
         data: slotData,
+        meta: detail.meta,
       };
 
       const unsubscribe = () => {
@@ -656,7 +678,14 @@ export class RouterView extends LitElement {
       }
 
       if (title) {
-        browserDocument().title = this.fillTitle(title, detail.params);
+        const resolvedTitle =
+          typeof title === "function" ? title(detail) : title;
+        if (resolvedTitle) {
+          browserDocument().title = this.fillTitle(
+            resolvedTitle,
+            detail.params,
+          );
+        }
       }
 
       return true;
@@ -894,15 +923,28 @@ export class RouterView extends LitElement {
     branch: RouteDefinition[],
     params: Record<string, string>,
   ): void {
-    const routeData =
-      detail.routeData?.get(route) ??
-      (route === branch[branch.length - 1] ? detail.data : undefined);
+    let routeData = detail.routeData?.get(route);
+    if (routeData === undefined && route === branch[branch.length - 1]) {
+      if (detail.routeData) {
+        for (let i = branch.length - 1; i >= 0; i--) {
+          const r = branch[i];
+          if (r && detail.routeData.has(r)) {
+            routeData = detail.routeData.get(r);
+            break;
+          }
+        }
+      }
+      if (routeData === undefined) {
+        routeData = detail.data;
+      }
+    }
     const routeContext: RouteContext = {
       detail,
       params,
       slot,
       branch,
       data: routeData,
+      meta: detail.meta,
     };
     const receiver = element as HTMLElement & {
       __lit_router_context?: RouteContext;

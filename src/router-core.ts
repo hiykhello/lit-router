@@ -92,7 +92,7 @@ export interface RouteDefinition<TData = unknown> {
   name?: string;
   path: string;
   slot?: string;
-  title?: string;
+  title?: string | ((detail: RouterChangeDetail) => string);
   viewTransitionName?: string;
   /**
    * 路由组件。
@@ -210,6 +210,7 @@ export interface RouterChangeDetail {
   direction: NavigationDirection;
   routeData?: Map<RouteDefinition, unknown>;
   data?: unknown;
+  meta?: RouteMeta;
   toJSON?: () => RouterChangeDetailJson;
 }
 
@@ -242,6 +243,7 @@ export interface RouterChangeDetailJson {
   navigationKey: string;
   direction: NavigationDirection;
   data?: unknown;
+  meta?: RouteMeta;
 }
 
 export interface RouteContext<TData = unknown> {
@@ -250,6 +252,7 @@ export interface RouteContext<TData = unknown> {
   slot: string;
   branch: RouteDefinition[];
   data?: TData;
+  meta?: RouteMeta;
 }
 
 export interface RouteContextReceiver<TData = unknown> {
@@ -754,6 +757,7 @@ function detailToJSON(this: RouterChangeDetail): RouterChangeDetailJson {
     navigationKey: this.navigationKey,
     direction: this.direction,
     data: this.data,
+    meta: this.meta,
   };
 }
 
@@ -1420,9 +1424,22 @@ export class Router extends EventTarget {
   }
 
   private readonly onDocumentClick = (event: MouseEvent) => {
-    const path = event.composedPath();
-    const anchor = path.find((item) => this.isNavigableAnchor(item)) as
-      Element | undefined;
+    const path =
+      typeof event.composedPath === "function" ? event.composedPath() : [];
+    let anchor: Element | undefined;
+    if (path.length > 0) {
+      anchor = path.find((item) => this.isNavigableAnchor(item)) as
+        Element | undefined;
+    } else {
+      let current: Node | null = event.target as Node | null;
+      while (current) {
+        if (this.isNavigableAnchor(current)) {
+          anchor = current;
+          break;
+        }
+        current = current.parentElement;
+      }
+    }
 
     if (!anchor) {
       return;
@@ -1447,19 +1464,34 @@ export class Router extends EventTarget {
     }
 
     // Check if anchor or any clicked child element should be ignored
-    for (const item of path) {
-      if (item instanceof Element) {
+    if (path.length > 0) {
+      for (const item of path) {
+        if (item instanceof Element) {
+          if (
+            item.hasAttribute("data-router-ignore") ||
+            item.hasAttribute("download") ||
+            item.hasAttribute("disabled") ||
+            item.getAttribute("aria-disabled") === "true"
+          ) {
+            return;
+          }
+        }
+        if (item === anchor) {
+          break;
+        }
+      }
+    } else {
+      let current = event.target as Element | null;
+      while (current && current !== anchor.parentElement) {
         if (
-          item.hasAttribute("data-router-ignore") ||
-          item.hasAttribute("download") ||
-          item.hasAttribute("disabled") ||
-          item.getAttribute("aria-disabled") === "true"
+          current.hasAttribute("data-router-ignore") ||
+          current.hasAttribute("download") ||
+          current.hasAttribute("disabled") ||
+          current.getAttribute("aria-disabled") === "true"
         ) {
           return;
         }
-      }
-      if (item === anchor) {
-        break;
+        current = current.parentElement;
       }
     }
 
@@ -1469,7 +1501,12 @@ export class Router extends EventTarget {
     }
 
     const browser = browserWindow();
-    const url = new URL(href, browser.location.href);
+    let url: URL;
+    try {
+      url = new URL(href, browser.location.href);
+    } catch {
+      return;
+    }
     if (url.origin !== browser.location.origin) {
       return;
     }
@@ -1829,7 +1866,7 @@ export class Router extends EventTarget {
       target !== null &&
       !(target instanceof URL)
     ) {
-      if ("id" in target && target.id) {
+      if ("id" in target && typeof target.id === "string" && target.id.trim()) {
         const id = normalizeRouteId(target.id);
         const isMatch = options.exact
           ? allBranches.some((b) => b[b.length - 1]?.id === id)
@@ -1851,7 +1888,11 @@ export class Router extends EventTarget {
         );
       }
 
-      if ("name" in target && target.name) {
+      if (
+        "name" in target &&
+        typeof target.name === "string" &&
+        target.name.trim()
+      ) {
         const name = normalizeRouteName(target.name);
         const isMatch = options.exact
           ? allBranches.some((b) => b[b.length - 1]?.name === name)
@@ -1876,6 +1917,7 @@ export class Router extends EventTarget {
 
     if (
       typeof target === "string" &&
+      Boolean(target.trim()) &&
       !target.startsWith("/") &&
       !target.startsWith(".") &&
       !target.includes("/") &&
@@ -2208,7 +2250,12 @@ export class Router extends EventTarget {
     }
 
     if (typeof target === "string") {
+      if (!target.trim()) {
+        return new URL(this.current.url.href);
+      }
+
       if (
+        Boolean(target.trim()) &&
         !target.startsWith("/") &&
         !target.startsWith(".") &&
         !target.includes("/") &&
@@ -2374,6 +2421,11 @@ export class Router extends EventTarget {
       }
     }
 
+    const meta: RouteMeta = Object.assign(
+      {},
+      ...branch.map((route) => route.meta).filter(Boolean),
+    );
+
     return {
       pathname,
       localPathname,
@@ -2390,6 +2442,7 @@ export class Router extends EventTarget {
       url,
       navigationKey: this.tryGetCurrentNavigationEntryKey() ?? "",
       direction: "none",
+      meta: Object.keys(meta).length ? meta : undefined,
       toJSON: detailToJSON,
     };
   }
@@ -2657,8 +2710,13 @@ export class Router extends EventTarget {
     }
 
     if (typeof result === "string") {
+      if (!result.trim()) {
+        return { to: new URL(baseUrl.href), replace: false };
+      }
+
       let targetUrl: URL;
       if (
+        Boolean(result.trim()) &&
         !result.startsWith("/") &&
         !result.startsWith(".") &&
         !result.includes("/") &&

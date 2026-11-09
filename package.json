@@ -1,6 +1,6 @@
 {
   "name": "@elelcode/lit-router",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "description": "A Navigation API-first router for Web Components and Lit, built around native browser capabilities such as URLPattern, Navigation API, and View Transitions API.",
   "type": "module",
   "main": "./dist/router.js",

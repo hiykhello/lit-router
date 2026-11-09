@@ -109,8 +109,7 @@ function mergeTargetOptions(
   if (
     typeof target === "object" &&
     target !== null &&
-    !(target instanceof URL) &&
-    ("name" in target || "id" in target)
+    !(target instanceof URL)
   ) {
     return {
       ...target,
@@ -535,7 +534,11 @@ class ActiveRouteDirective extends AsyncDirective {
       query,
       hash,
     } = this.options;
-    const isActive = this.router.isActive(this.target, {
+    const effectiveTarget =
+      typeof this.target === "string"
+        ? this.target
+        : mergeTargetOptions(this.target as RouteTarget, this.options);
+    const isActive = this.router.isActive(effectiveTarget, {
       exact,
       params,
       query,
