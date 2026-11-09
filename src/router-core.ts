@@ -48,10 +48,9 @@ export interface RouterLinkAttributes {
 }
 
 export type RouteGuardRedirect =
-  | string
-  | URL
+  | RouteTarget
   | {
-      to: string | URL;
+      to: RouteTarget;
       replace?: boolean;
     };
 
@@ -826,24 +825,6 @@ function detailBranches(detail: RouterChangeDetail): RouteDefinition[][] {
   return detail.branch.length ? [detail.branch, ...branches] : branches;
 }
 
-function toRedirectInstruction(
-  result: Exclude<RouteGuardResult, boolean | void>,
-  base: string,
-): RedirectInstruction {
-  if (result instanceof URL) {
-    return { to: result, replace: false };
-  }
-
-  if (typeof result === "string") {
-    return { to: new URL(result, base), replace: false };
-  }
-
-  return {
-    to: result.to instanceof URL ? result.to : new URL(result.to, base),
-    replace: Boolean(result.replace),
-  };
-}
-
 function buildNamedRouteIndex(
   routes: RouteDefinition[],
   parentBranch: NamedRouteBranch = [],
@@ -1505,7 +1486,11 @@ export class Router extends EventTarget {
   private readonly onNavigate = (event: Event) => {
     const navigateEvent = event as NavigationRouteEvent;
 
-    if (!navigateEvent.canIntercept || !navigateEvent.intercept) {
+    if (
+      navigateEvent.defaultPrevented ||
+      !navigateEvent.canIntercept ||
+      !navigateEvent.intercept
+    ) {
       return;
     }
 
@@ -1759,6 +1744,33 @@ export class Router extends EventTarget {
     this.navigate(url, "replace");
   }
 
+  back(): void {
+    const nav = this.navigationApi as NavigationApi & { back?: () => void };
+    if (typeof nav.back === "function") {
+      nav.back();
+    } else {
+      browserWindow().history.back();
+    }
+  }
+
+  forward(): void {
+    const nav = this.navigationApi as NavigationApi & { forward?: () => void };
+    if (typeof nav.forward === "function") {
+      nav.forward();
+    } else {
+      browserWindow().history.forward();
+    }
+  }
+
+  go(delta: number): void {
+    browserWindow().history.go(delta);
+  }
+
+  resolve(target: RouteTarget): RouterChangeDetail | null {
+    const url = this.toRouteUrl(target);
+    return this.resolveMatched(url);
+  }
+
   resolveUrl(target: string | URL): RouterChangeDetail | null {
     const url = this.toRouteUrl(target);
     return this.resolveMatched(url);
@@ -1780,6 +1792,10 @@ export class Router extends EventTarget {
 
   link(target: RouteTarget): string {
     const url = this.toRouteUrl(target);
+    const browser = browserWindow();
+    if (url.origin !== browser.location.origin) {
+      return url.href;
+    }
     return `${url.pathname}${url.search}${url.hash}`;
   }
 
@@ -2110,6 +2126,14 @@ export class Router extends EventTarget {
     );
   }
 
+  private tryGetCurrentNavigationEntryKey(): string | undefined {
+    try {
+      return this.navigationApi.currentEntry?.key;
+    } catch {
+      return undefined;
+    }
+  }
+
   private resolveNavigationDirection(
     history: NavigationHistoryMode | "none",
     nextNavigationKey: string,
@@ -2164,8 +2188,17 @@ export class Router extends EventTarget {
     mode: NavigationHistoryMode,
   ): void {
     const url = this.toRouteUrl(target);
-    const href = `${url.pathname}${url.search}${url.hash}`;
+    const browser = browserWindow();
+    if (url.origin !== browser.location.origin) {
+      if (mode === "replace") {
+        browser.location.replace(url.href);
+      } else {
+        browser.location.assign(url.href);
+      }
+      return;
+    }
 
+    const href = `${url.pathname}${url.search}${url.hash}`;
     this.navigationApi.navigate(href, { history: mode });
   }
 
@@ -2190,6 +2223,7 @@ export class Router extends EventTarget {
       }
       if (
         target.startsWith("/") &&
+        !target.startsWith("//") &&
         this.basePath !== ROOT_PATH &&
         !target.startsWith(this.basePath + "/") &&
         target !== this.basePath
@@ -2204,20 +2238,44 @@ export class Router extends EventTarget {
       return new URL(target, this.current.url.href);
     }
 
-    const branch = target.id
-      ? this.resolveRouteIdBranch(target.id)
-      : this.resolveNamedRouteBranch(target.name ?? "");
-    const localPathname = buildLocalPathname(branch, target.params);
+    let branch: NamedRouteBranch;
+    if (target.id) {
+      branch = this.resolveRouteIdBranch(target.id);
+    } else if (target.name) {
+      branch = this.resolveNamedRouteBranch(target.name);
+    } else if (this.current.branch.length > 0) {
+      branch = this.current.branch;
+    } else {
+      throw new Error(
+        "RouteLocation requires a route name or id when there is no active route.",
+      );
+    }
+
+    const mergedParams = {
+      ...(!target.id && !target.name ? this.current.params : {}),
+      ...(target.params ?? {}),
+    };
+    const localPathname = buildLocalPathname(branch, mergedParams);
     const pathname = this.withBasePath(localPathname);
-    const href = `${pathname}${createSearchString(target.query)}${normalizeHash(
-      target.hash,
-    )}`;
+    const search =
+      target.query !== undefined
+        ? createSearchString(target.query)
+        : !target.id && !target.name
+          ? this.current.url.search
+          : "";
+    const hash =
+      target.hash !== undefined
+        ? normalizeHash(target.hash)
+        : !target.id && !target.name
+          ? this.current.url.hash
+          : "";
+    const href = `${pathname}${search}${hash}`;
 
     return new URL(href, browserWindow().location.origin);
   }
 
   private resolveMatched(url: URL): RouterChangeDetail | null {
-    const detail = this.resolve(url);
+    const detail = this.resolveUrlDetail(url);
     return detail && detail.branch.length > 0 ? detail : null;
   }
 
@@ -2269,7 +2327,7 @@ export class Router extends EventTarget {
       : `${this.basePath}${localPathname}`;
   }
 
-  private resolve(url: URL): RouterChangeDetail | null {
+  private resolveUrlDetail(url: URL): RouterChangeDetail | null {
     const pathname = normalizePathname(url.pathname);
     const localPathname = stripBasePath(pathname, this.basePath);
 
@@ -2330,7 +2388,7 @@ export class Router extends EventTarget {
       slotParams: Object.keys(slotParams).length ? slotParams : undefined,
       slots: Object.keys(slots).length ? slots : undefined,
       url,
-      navigationKey: this.getCurrentNavigationEntryKey(),
+      navigationKey: this.tryGetCurrentNavigationEntryKey() ?? "",
       direction: "none",
       toJSON: detailToJSON,
     };
@@ -2397,7 +2455,7 @@ export class Router extends EventTarget {
 
     const activeNavigation = this.activeNavigation;
     if (activeNavigation && activeNavigation.id === this.navigationId) {
-      const nextDetail = this.resolve(activeNavigation.url);
+      const nextDetail = this.resolveUrlDetail(activeNavigation.url);
 
       if (skipIfSame) {
         if (
@@ -2422,7 +2480,7 @@ export class Router extends EventTarget {
 
     const currentUrl = new URL(browserWindow().location.href);
     if (skipIfSame) {
-      const nextDetail = this.resolve(currentUrl);
+      const nextDetail = this.resolveUrlDetail(currentUrl);
       if (
         nextDetail &&
         this.current.branch.length > 0 &&
@@ -2488,7 +2546,7 @@ export class Router extends EventTarget {
     const redirectDepth = options.redirectDepth ?? 0;
 
     try {
-      const detail = this.resolve(url);
+      const detail = this.resolveUrlDetail(url);
       this.updateActiveNavigationDetail(currentNavigationId, detail);
 
       const decision = await this.evaluateGuards(
@@ -2590,10 +2648,80 @@ export class Router extends EventTarget {
     return true;
   }
 
+  private toRedirectInstruction(
+    result: Exclude<RouteGuardResult, boolean | void>,
+    baseUrl: URL,
+  ): RedirectInstruction {
+    if (result instanceof URL) {
+      return { to: result, replace: false };
+    }
+
+    if (typeof result === "string") {
+      let targetUrl: URL;
+      if (
+        !result.startsWith("/") &&
+        !result.startsWith(".") &&
+        !result.includes("/") &&
+        !result.includes("?") &&
+        !result.includes("#") &&
+        this.namedRoutes.has(normalizeRouteName(result))
+      ) {
+        targetUrl = this.toRouteUrl(result);
+      } else if (
+        result.startsWith("/") &&
+        !result.startsWith("//") &&
+        this.basePath !== ROOT_PATH &&
+        !result.startsWith(this.basePath + "/") &&
+        result !== this.basePath
+      ) {
+        const u = new URL(result, browserWindow().location.origin);
+        const pathname = this.withBasePath(u.pathname);
+        targetUrl = new URL(
+          `${pathname}${u.search}${u.hash}`,
+          browserWindow().location.origin,
+        );
+      } else {
+        targetUrl = new URL(result, baseUrl.href);
+      }
+      return { to: targetUrl, replace: false };
+    }
+
+    if (
+      typeof result === "object" &&
+      result !== null &&
+      "to" in result &&
+      result.to
+    ) {
+      const inner = this.toRedirectInstruction(
+        result.to as Exclude<RouteGuardResult, boolean | void>,
+        baseUrl,
+      );
+      return {
+        to: inner.to,
+        replace: Boolean(result.replace),
+      };
+    }
+
+    return {
+      to: this.toRouteUrl(result as RouteLocation),
+      replace: false,
+    };
+  }
+
   private redirectWithNavigationApi(
     redirect: RedirectInstruction,
     redirectDepth: number,
   ): void {
+    const browser = browserWindow();
+    if (redirect.to.origin !== browser.location.origin) {
+      if (redirect.replace) {
+        browser.location.replace(redirect.to.href);
+      } else {
+        browser.location.assign(redirect.to.href);
+      }
+      return;
+    }
+
     this.pendingRedirectDepths.set(redirect.to.href, redirectDepth);
     this.navigationApi.navigate(
       `${redirect.to.pathname}${redirect.to.search}${redirect.to.hash}`,
@@ -2797,7 +2925,7 @@ export class Router extends EventTarget {
           if (result && result !== true) {
             return {
               allowed: false,
-              redirect: toRedirectInstruction(result, from.url.href),
+              redirect: this.toRedirectInstruction(result, from.url),
             };
           }
         }
@@ -2826,7 +2954,7 @@ export class Router extends EventTarget {
           if (result && result !== true) {
             return {
               allowed: false,
-              redirect: toRedirectInstruction(result, from.url.href),
+              redirect: this.toRedirectInstruction(result, from.url),
             };
           }
         }
@@ -2857,7 +2985,7 @@ export class Router extends EventTarget {
       if (result && result !== true) {
         return {
           allowed: false,
-          redirect: toRedirectInstruction(result, detail.url.href),
+          redirect: this.toRedirectInstruction(result, detail.url),
         };
       }
     }
@@ -2886,7 +3014,7 @@ export class Router extends EventTarget {
       if (result && result !== true) {
         return {
           allowed: false,
-          redirect: toRedirectInstruction(result, detail.url.href),
+          redirect: this.toRedirectInstruction(result, detail.url),
         };
       }
     }
@@ -3014,10 +3142,31 @@ export class Router extends EventTarget {
   }
 
   private restoreCancelledNavigationWithNavigationApi(): boolean {
-    const navigationApi = this.navigationApi;
+    const navigationApi = this.navigationApi as NavigationApi & {
+      traverseTo?: (key: string) => NavigationResult;
+      entries?: () => Array<{ key: string }>;
+    };
+    if (
+      this.current.navigationKey &&
+      typeof navigationApi.traverseTo === "function" &&
+      typeof navigationApi.entries === "function"
+    ) {
+      const hasEntry = navigationApi
+        .entries()
+        .some((entry) => entry.key === this.current.navigationKey);
+      if (hasEntry) {
+        try {
+          navigationApi.traverseTo(this.current.navigationKey);
+          return true;
+        } catch {
+          // ignore and fall back to navigate replace
+        }
+      }
+    }
+
     const href = `${this.current.url.pathname}${this.current.url.search}${this.current.url.hash}`;
     try {
-      navigationApi.navigate(href, { history: "replace" });
+      this.navigationApi.navigate(href, { history: "replace" });
       return true;
     } catch {
       return false;

@@ -24,8 +24,14 @@ function decodeHashFragment(fragment: string): string {
   }
 }
 
-function resolveScrollKey(entry: ScrollEntry): string {
-  return typeof entry === "string" ? entry : entry.href;
+function resolveScrollKey(entry: ScrollEntry, url?: URL): string {
+  if (typeof entry === "string" && entry) {
+    return entry;
+  }
+  if (entry instanceof URL) {
+    return entry.href;
+  }
+  return url?.href ?? "";
 }
 
 export class ScrollManager {
@@ -89,9 +95,9 @@ export class ScrollManager {
     }
   }
 
-  capture(entry: ScrollEntry, _url?: URL): void {
+  capture(entry: ScrollEntry, url?: URL): void {
     const browser = browserWindow();
-    this.remember(resolveScrollKey(entry), {
+    this.remember(resolveScrollKey(entry, url), {
       left: browser.scrollX,
       top: browser.scrollY,
     });
@@ -110,9 +116,14 @@ export class ScrollManager {
         target = browserDocument().getElementById(fragment);
         if (!target) {
           try {
-            target = browserDocument().querySelector(
-              `a[name="${CSS?.escape ? CSS.escape(fragment) : fragment}"]`,
-            );
+            const browser = browserWindow() as Window & {
+              CSS?: { escape?: (val: string) => string };
+            };
+            const escaped =
+              typeof browser.CSS?.escape === "function"
+                ? browser.CSS.escape(fragment)
+                : fragment;
+            target = browserDocument().querySelector(`a[name="${escaped}"]`);
           } catch {
             // ignore invalid selector error
           }
@@ -124,7 +135,7 @@ export class ScrollManager {
       }
     }
 
-    const stored = this.positions.get(resolveScrollKey(entry));
+    const stored = this.positions.get(resolveScrollKey(entry, url));
     if (stored) {
       browserWindow().scrollTo({
         left: stored.left,

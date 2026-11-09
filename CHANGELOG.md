@@ -1,6 +1,33 @@
 # Changelog
 
-## 2.1.3 (2026-11-09)
+## 2.1.5 (2026-11-09)
+
+### Fixed
+
+- **Cross-Origin & Protocol-Relative `router.link` Integrity**: `router.link()` now preserves external origins (e.g. `https://example.com/login`) and protocol-relative URLs (`//cdn.example.com`) without stripping down to local pathnames or prefixing with `basePath`.
+- **Targeting Current Route State via `RouteLocation`**: `RouteLocation` objects omitting both `id` and `name` (e.g. `router.push({ query: { page: "2" } })`, `router.push({ hash: "section" })`, `router.push({ params: { id: "42" } })`) now seamlessly target and update the active route instead of throwing an `Unknown route name ""` error.
+- **`<router-view>` Reconnection Resilience**: When `<router-view>` is disconnected and subsequently reconnected to the DOM, it now detects reconnection and automatically resynchronizes the active route state into the viewport, avoiding blank views.
+- **Custom Elements Definition Race Protection**: Deferred property and context assignment (`whenDefined`) now verifies `element.isConnected` and compares the element's latest context against the closure context, preventing stale async resolutions from overriding subsequent navigations.
+- **Scroll Restoration Key Fallback**: `ScrollManager` now falls back gracefully to `url.href` if the navigation entry key is empty or not yet assigned.
+- **Traverse-Based History Restoration for Cancelled Traversal**: When a browser history traversal (e.g. Back button) is blocked by a guard, `Router` now attempts to restore the previous entry via `navigationApi.traverseTo` before falling back to `replace`, preventing extraneous history stack entries.
+
+### Added
+
+- **Unified `router.resolve` and `routerView.resolve`**: Added public `resolve(target: RouteTarget)` method to both `Router` and `<router-view>` supporting route paths, `URL` objects, and `RouteLocation` specifications.
+
+## 2.1.4 (2026-11-09)
+
+### Fixed
+
+- **Base-Path and Named Route Preservation in Guard Redirects**: Guard redirects (`RouteGuardRedirect`) now properly respect and prepend `basePath` when redirecting to root-relative paths (e.g. `"/login"`), and resolve named routes and `RouteLocation` objects with parameters and query strings via `toRouteUrl`, while preserving relative redirects (e.g. `"./sub"`).
+- **Cross-Origin Navigation and Redirects**: Prevented `SecurityError` exceptions from `navigation.navigate()` on external URLs. Cross-origin destinations passed to `router.push`, `router.replace`, or returned from route guards now seamlessly delegate to `window.location.assign` or `window.location.replace`.
+- **Navigation API PreventDefault Handling**: `onNavigate` now verifies `!navigateEvent.defaultPrevented` before intercepting, respecting external or third-party cancellation of navigation events.
+- **Global CSS Identifier Safety in Scroll Restoration**: Removed direct undeclared `CSS?.escape` identifier access in favor of `window.CSS?.escape`, preventing runtime `ReferenceError: CSS is not defined` in headless, SSR, or Node test environments.
+- **Directive Aria-Current Cleanup**: When disconnected, `routerLink` and `activeRoute` directives now clean up `aria-current` attributes along with active classes, preventing stale accessibility state on detached elements.
+
+### Added
+
+- **Convenience History Methods**: Added `router.back()`, `router.forward()`, and `router.go(delta)` to both `Router` and `<router-view>` for seamless programmatic browser history traversal.
 
 ### Fixed
 

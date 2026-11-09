@@ -6,7 +6,7 @@ import {
   settle,
   teardownDom,
 } from "./test_setup.ts";
-import { test } from "vitest";
+import { test, vi } from "vitest";
 import { html, render } from "lit";
 import {
   activeRoute,
@@ -1217,5 +1217,316 @@ test("routerLink directive re-subscribes to context when element is reconnected"
 
     // Active status should update correctly through reconnected subscription
     assertEquals(anchor.classList.contains("active"), false);
+  });
+});
+
+test("guard redirect properly preserves basePath when redirecting to root-relative path", async () => {
+  await withRouters(async (createRouter) => {
+    const router = createRouter({
+      basePath: "/app",
+      routes: [
+        {
+          path: "protected",
+          component: "test-ext-page",
+          guard: () => "/login",
+        },
+        {
+          path: "login",
+          component: "test-ext-page",
+        },
+      ],
+    });
+
+    await settle();
+    router.push("/app/protected");
+    await settle();
+
+    assertEquals(router.current.pathname, "/app/login");
+    assertEquals(router.current.localPathname, "/login");
+  });
+});
+
+test("guard redirect supports RouteLocation and named routes", async () => {
+  await withRouters(async (createRouter) => {
+    const router = createRouter({
+      basePath: "/app",
+      routes: [
+        {
+          path: "old-user/:id",
+          component: "test-ext-page",
+          guard: (detail) => ({
+            name: "user-profile",
+            params: { userId: detail.params.id },
+            query: { fromOld: "true" },
+          }),
+        },
+        {
+          name: "user-profile",
+          path: "users/:userId",
+          component: "test-ext-page",
+        },
+      ],
+    });
+
+    await settle();
+    router.push("/app/old-user/99");
+    await settle();
+
+    assertEquals(router.current.pathname, "/app/users/99");
+    assertEquals(router.current.localPathname, "/users/99");
+    assertEquals(router.current.query.get("fromOld"), "true");
+    assertEquals(router.current.params.userId, "99");
+  });
+});
+
+test("router.back, router.forward, router.go, and router-view delegation", async () => {
+  await withRouters(async (createRouter) => {
+    const router = createRouter({
+      routes: [
+        { path: "page1", component: "test-ext-page" },
+        { path: "page2", component: "test-ext-page" },
+      ],
+    });
+
+    const dom = browser();
+    const view = dom.document.createElement("router-view") as RouterView & {
+      back: () => void;
+      forward: () => void;
+      go: (delta: number) => void;
+    };
+    view.router = router;
+    dom.document.body.append(view);
+    await settle(view);
+
+    const goSpy = vi.spyOn(dom.history, "go").mockImplementation(() => {});
+    const backSpy = vi.spyOn(dom.history, "back").mockImplementation(() => {});
+    const forwardSpy = vi
+      .spyOn(dom.history, "forward")
+      .mockImplementation(() => {});
+
+    try {
+      view.back();
+      assertEquals(backSpy.mock.calls.length, 1);
+
+      view.forward();
+      assertEquals(forwardSpy.mock.calls.length, 1);
+
+      view.go(-2);
+      assertEquals(goSpy.mock.calls[0]?.[0], -2);
+    } finally {
+      goSpy.mockRestore();
+      backSpy.mockRestore();
+      forwardSpy.mockRestore();
+    }
+  });
+});
+
+test("cross-origin push and guard redirect delegate to browser location", async () => {
+  await withRouters(async (createRouter) => {
+    const dom = browser();
+    let assignedUrl = "";
+    let replacedUrl = "";
+    const origAssign = dom.location.assign;
+    const origReplace = dom.location.replace;
+    dom.location.assign = (url: string) => {
+      assignedUrl = url;
+    };
+    dom.location.replace = (url: string) => {
+      replacedUrl = url;
+    };
+
+    try {
+      const router = createRouter({
+        routes: [
+          {
+            path: "oauth",
+            component: "test-ext-page",
+            guard: () => ({
+              to: new URL("https://auth.example.com/sso"),
+              replace: true,
+            }),
+          },
+          {
+            path: "home",
+            component: "test-ext-page",
+          },
+        ],
+      });
+
+      // Push cross-origin URL
+      router.push("https://external.example.com/landing");
+      assertEquals(assignedUrl, "https://external.example.com/landing");
+
+      // Replace cross-origin URL via guard
+      router.push("/oauth");
+      await settle();
+      assertEquals(replacedUrl, "https://auth.example.com/sso");
+    } finally {
+      dom.location.assign = origAssign;
+      dom.location.replace = origReplace;
+    }
+  });
+});
+
+test("RouteLocation without name or id updates current route params, query, and hash", async () => {
+  await withRouters(async (createRouter) => {
+    const dom = browser();
+    dom.history.replaceState(null, "", "/users/10?tab=overview#bio");
+
+    const router = createRouter({
+      routes: [
+        {
+          path: "users/:userId",
+          name: "user-profile",
+          component: "test-ext-page",
+        },
+      ],
+    });
+
+    await settle();
+    assertEquals(router.current.pathname, "/users/10");
+    assertEquals(router.current.query.get("tab"), "overview");
+    assertEquals(router.current.hash, "#bio");
+
+    // Update query only
+    router.push({ query: { tab: "settings", page: "2" } });
+    await settle();
+    assertEquals(router.current.pathname, "/users/10");
+    assertEquals(router.current.query.get("tab"), "settings");
+    assertEquals(router.current.query.get("page"), "2");
+
+    // Update hash only
+    router.push({ hash: "security" });
+    await settle();
+    assertEquals(router.current.pathname, "/users/10");
+    assertEquals(router.current.hash, "#security");
+
+    // Update params only
+    router.push({ params: { userId: "25" } });
+    await settle();
+    assertEquals(router.current.pathname, "/users/25");
+  });
+});
+
+test("router.link preserves cross-origin URLs and protocol-relative URLs", async () => {
+  await withRouters(async (createRouter) => {
+    const dom = browser();
+    dom.history.replaceState(null, "", "/app/dashboard");
+
+    const router = createRouter({
+      basePath: "/app",
+      routes: [
+        {
+          path: "dashboard",
+          name: "dashboard",
+          component: "test-ext-page",
+        },
+      ],
+    });
+
+    await settle();
+
+    // Internal link includes basePath
+    assertEquals(router.link("dashboard"), "/app/dashboard");
+    assertEquals(router.link("/settings"), "/app/settings");
+
+    // Cross-origin link keeps full URL
+    assertEquals(
+      router.link("https://auth.example.com/login"),
+      "https://auth.example.com/login",
+    );
+
+    // Protocol-relative link is preserved
+    const protoUrl = router.link("//cdn.example.com/assets");
+    assertEquals(protoUrl.includes("cdn.example.com"), true);
+  });
+});
+
+test("router.resolve and routerView.resolve resolve RouteLocation, string, and URL targets", async () => {
+  await withRouters(async (createRouter) => {
+    const dom = browser();
+    dom.history.replaceState(null, "", "/home");
+
+    const router = createRouter({
+      routes: [
+        {
+          path: "home",
+          name: "home-page",
+          id: "route-home",
+          component: "test-ext-page",
+        },
+        {
+          path: "items/:id",
+          name: "item-detail",
+          id: "route-item",
+          component: "test-ext-page",
+        },
+      ],
+    });
+
+    await settle();
+
+    // Resolve by string
+    const matchString = router.resolve("/items/42");
+    assertEquals(matchString?.pathname, "/items/42");
+    assertEquals(matchString?.params.id, "42");
+
+    // Resolve by RouteLocation with name
+    const matchName = router.resolve({
+      name: "item-detail",
+      params: { id: "99" },
+    });
+    assertEquals(matchName?.pathname, "/items/99");
+    assertEquals(matchName?.params.id, "99");
+
+    // Resolve by RouteLocation with id
+    const matchId = router.resolve({
+      id: "route-home",
+    });
+    assertEquals(matchId?.pathname, "/home");
+
+    // RouterView delegates resolve
+    const view = new RouterView();
+    view.router = router;
+    const matchFromView = view.resolve("/items/77");
+    assertEquals(matchFromView?.pathname, "/items/77");
+    assertEquals(matchFromView?.params.id, "77");
+  });
+});
+
+test("router-view reconnection restores view without getting stuck empty", async () => {
+  await withRouters(async (createRouter) => {
+    const dom = browser();
+    dom.history.replaceState(null, "", "/about");
+
+    const router = createRouter({
+      routes: [
+        {
+          path: "about",
+          component: "test-ext-page",
+        },
+      ],
+    });
+
+    const view = new RouterView();
+    view.router = router;
+    dom.document.body.appendChild(view);
+    await settle();
+
+    const renderedBefore = view.renderRoot.querySelector("test-ext-page");
+    assertEquals(renderedBefore !== null, true);
+
+    // Disconnect and reconnect to DOM
+    dom.document.body.removeChild(view);
+    await settle();
+
+    dom.document.body.appendChild(view);
+    await settle();
+
+    // View should be remounted on reconnection
+    const renderedAfter = view.renderRoot.querySelector("test-ext-page");
+    assertEquals(renderedAfter !== null, true);
+
+    dom.document.body.removeChild(view);
   });
 });

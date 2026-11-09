@@ -18,6 +18,7 @@ import {
   type RouteLeaveGuard,
   type RouteLocation,
   type RouteNotFoundDetail,
+  type RouteTarget,
   type Router,
   type RouterChangeDetail,
 } from "./router-core.ts";
@@ -100,6 +101,9 @@ export class RouterView extends LitElement {
     this.setTransitionDirection(this.activeDetail.direction);
     this.setViewTransitionName(this.activeDetail.leaf?.viewTransitionName);
     this.connectRouter();
+    if (this.hasUpdated) {
+      this.syncFromRouter(false);
+    }
   }
 
   disconnectedCallback(): void {
@@ -161,6 +165,22 @@ export class RouterView extends LitElement {
 
   replace(url: string | URL | RouteLocation): void {
     this.router?.replace(url);
+  }
+
+  back(): void {
+    this.router?.back();
+  }
+
+  forward(): void {
+    this.router?.forward();
+  }
+
+  go(delta: number): void {
+    this.router?.go(delta);
+  }
+
+  resolve(target: RouteTarget): RouterChangeDetail | null {
+    return this.router?.resolve(target) ?? null;
   }
 
   private connectRouter(): void {
@@ -884,23 +904,33 @@ export class RouterView extends LitElement {
       branch,
       data: routeData,
     };
+    const receiver = element as HTMLElement & {
+      __lit_router_context?: RouteContext;
+    };
+    receiver.__lit_router_context = routeContext;
+
     const assignProps = () => {
       Object.assign(element, route.props ?? {});
       this.applyRouteContext(element, routeContext, route);
     };
 
+    assignProps();
+
     const customElementsRegistry = browserWindow().customElements;
     if (
       element.localName.includes("-") &&
+      customElementsRegistry &&
       !customElementsRegistry.get(element.localName)
     ) {
-      void customElementsRegistry
-        .whenDefined(element.localName)
-        .then(assignProps);
-      return;
+      void customElementsRegistry.whenDefined(element.localName).then(() => {
+        if (
+          element.isConnected &&
+          receiver.__lit_router_context === routeContext
+        ) {
+          assignProps();
+        }
+      });
     }
-
-    assignProps();
   }
 
   private applyRouteContext(

@@ -353,9 +353,12 @@ class RouterLinkDirective extends AsyncDirective {
   }
 
   override disconnected(): void {
-    if (this.element && this.lastActiveClass) {
-      toggleClasses(this.element, this.lastActiveClass, false);
-      this.lastActiveClass = undefined;
+    if (this.element) {
+      if (this.lastActiveClass) {
+        toggleClasses(this.element, this.lastActiveClass, false);
+        this.lastActiveClass = undefined;
+      }
+      this.element.removeAttribute("aria-current");
     }
     this.element?.removeEventListener("click", this.onClick);
     this.detachRouterListener();
@@ -561,9 +564,12 @@ class ActiveRouteDirective extends AsyncDirective {
   }
 
   override disconnected(): void {
-    if (this.element && this.lastActiveClass) {
-      toggleClasses(this.element, this.lastActiveClass, false);
-      this.lastActiveClass = undefined;
+    if (this.element) {
+      if (this.lastActiveClass) {
+        toggleClasses(this.element, this.lastActiveClass, false);
+        this.lastActiveClass = undefined;
+      }
+      this.element.removeAttribute("aria-current");
     }
     this.detachRouterListener();
     this.unsubscribeContext?.();
