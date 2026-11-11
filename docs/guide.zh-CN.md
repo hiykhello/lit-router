@@ -525,19 +525,6 @@ class BreadcrumbBar extends LitElement {
 }
 ```
 
-## 与 `lit-ui-router` 深度对比
-
-| 维度             | `lit-ui-router`                                              | `@elelcode/lit-router` (本项目)                            |
-| :--------------- | :----------------------------------------------------------- | :--------------------------------------------------------- |
-| **底层核心依赖** | 强依赖 `@uirouter/core` 重型状态机（AngularJS 时代历史包袱） | **Navigation API 原生首选** + 浏览器原生标准               |
-| **视图组织**     | 自定义 `<ui-view>` 组件树                                    | **原生 Web Components `<slot>`** 并行多插槽                |
-| **过渡动画**     | 模拟过渡类                                                   | **原生 `View Transitions API`** 支持方向感知               |
-| **模板指令**     | `uiSref`                                                     | **`routerLink` 与 `activeRoute`**，自动管理 `aria-current` |
-| **数据加载**     | 状态机 `resolve`                                             | **并发 `loader`**，支持 AbortSignal 取消与消除瀑布流       |
-| **离开守卫**     | `uiCanExit`                                                  | **组件 `beforeRouteLeave`** + `registerLeaveGuard`         |
-| **上下文协议**   | 需适配 `@lit/context`                                        | **标准 W3C Context Protocol**，零外部依赖互通              |
-| **包体积**       | **> 300KB**（Gzip 约 90KB+）                                 | **~60KB**（**Gzip 约 15KB**，体积减少约 6 倍）             |
-
 ## 事件
 
 建议在应用壳层统一监听：

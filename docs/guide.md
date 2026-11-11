@@ -501,19 +501,6 @@ class BreadcrumbBar extends LitElement {
 }
 ```
 
-## Architecture Comparison with `lit-ui-router`
-
-| Dimension                | `lit-ui-router`                        | `@elelcode/lit-router`                                         |
-| :----------------------- | :------------------------------------- | :------------------------------------------------------------- |
-| **Underlying Engine**    | Heavy `@uirouter/core` state machine   | **Native Navigation API + URLPattern**                         |
-| **View Organization**    | Custom `<ui-view>` component hierarchy | **Native `<slot>` elements** with parallel projection          |
-| **Transition Animation** | Simulated transitions                  | **Native `View Transitions API`**                              |
-| **Directives**           | `uiSref`                               | **`routerLink` & `activeRoute`** with automatic `aria-current` |
-| **Data Fetching**        | State machine `resolve`                | **Concurrent `loader`** with AbortSignal cancellation          |
-| **Leave Guards**         | `uiCanExit`                            | **Component `beforeRouteLeave`** + `registerLeaveGuard`        |
-| **Context Sharing**      | `@lit/context` with extra bridge code  | **Native W3C Context Protocol** with 0 runtime dependencies    |
-| **Bundle Size**          | **> 300KB** (> 90KB gzip)              | **~60KB** (**~15KB gzip**)                                     |
-
 ## Events
 
 Listen on the `Router` instance:

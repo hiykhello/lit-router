@@ -30,21 +30,6 @@ Docs:
 - **Zero-Wrapper Projection**: no wrapper container components required; `<router-view>` projects directly into native `<slot>` elements.
 - **Race-Safe**: abort signals cancel stale async loads, guards, and transition promises immediately when newer navigations occur.
 
-## Architecture Comparison: @elelcode/lit-router vs. lit-ui-router
-
-| Feature / Dimension           | `lit-ui-router` (UI-Router for Lit)                           | `@elelcode/lit-router` (This Package)                                 |
-| :---------------------------- | :------------------------------------------------------------ | :-------------------------------------------------------------------- |
-| **Foundation & Architecture** | Heavy `@uirouter/core` state machine (AngularJS-era legacy)   | **Navigation API-First** (Native modern web platform)                 |
-| **Route Matching**            | Custom regex parser and state path engine                     | **Native `URLPattern`** (Browser-native, standard-compliant)          |
-| **Page Transitions**          | Manual DOM manipulation or simulated CSS classes              | **Native `View Transitions API`** with direction awareness            |
-| **View Organization**         | Custom `<ui-view>` component tree with complex context wiring | **Native `<slot>` elements** with multi-outlet parallel projection    |
-| **Component Hierarchy**       | Requires top-level `<ui-router .uiRouter=${router}>` wrapper  | **Zero Wrapper Container**; clean standalone `<router-view>`          |
-| **Declarative Directives**    | `uiSref` / `srefHref` directives                              | **`routerLink` & `activeRoute`** with automatic a11y (`aria-current`) |
-| **Data Prefetching**          | State-machine `resolve`                                       | **Concurrent `loader`** with AbortSignal & waterfall elimination      |
-| **Leave Guards**              | State-machine `uiCanExit`                                     | **Component `beforeRouteLeave`** + `registerLeaveGuard()`             |
-| **Context Protocol**          | Proprietary `@lit/context` wiring                             | **Standard W3C Context Protocol** (0 extra dependencies)              |
-| **Bundle Footprint**          | **> 300KB** unminified (> 90KB gzip with `@uirouter/core`)    | **~60KB** bundle (**~15KB gzip**), ~6x smaller                        |
-
 ## Install
 
 ```bash
