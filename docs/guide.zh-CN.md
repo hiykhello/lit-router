@@ -96,7 +96,7 @@ document.querySelector("router-view")!.router = router;
 在项目根目录运行：
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 关键文件：

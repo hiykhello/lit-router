@@ -39,11 +39,11 @@ npm install @elelcode/lit-router lit
 Local development commands:
 
 ```bash
-npm install
-npm test
-npm run typecheck
-npm run build
-npm run dev
+pnpm install
+pnpm test
+pnpm run typecheck
+pnpm run build
+pnpm run dev
 ```
 
 ## Docs
@@ -549,7 +549,7 @@ A full interactive demo with navigation bar, status panel, guarded lab route,
 and dynamic module loading. Run it with:
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 Key files:

@@ -8,7 +8,7 @@ export default defineConfig({
       formats: ["es"],
       fileName: () => "router.js",
     },
-    rollupOptions: {
+    rolldownOptions: {
       external: [/^lit(\/.*)?$/],
     },
     sourcemap: true,
@@ -17,7 +17,15 @@ export default defineConfig({
   publicDir: false,
   plugins: [
     dts({
-      rollupTypes: true,
+      beforeWriteFile(filePath, content) {
+        return {
+          filePath,
+          content: content.replace(
+            /(from\s+['"]\.{1,2}\/[^'"]+)\.ts(['"])/g,
+            "$1.js$2",
+          ),
+        };
+      },
     }),
   ],
 });

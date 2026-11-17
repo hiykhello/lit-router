@@ -4,7 +4,7 @@
  * Requires Chromium. Puppeteer downloads it automatically on first run.
  *
  * Provide dist-e2e/router.bundle.js, then run:
- * npm run test:e2e
+ * pnpm run test:e2e
  */
 
 import http from "node:http";

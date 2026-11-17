@@ -829,52 +829,40 @@ function detailBranches(detail: RouterChangeDetail): RouteDefinition[][] {
   return detail.branch.length ? [detail.branch, ...branches] : branches;
 }
 
-function buildNamedRouteIndex(
+function buildRouteIndexes(
   routes: RouteDefinition[],
   parentBranch: NamedRouteBranch = [],
-  index = new Map<string, NamedRouteBranch>(),
-): Map<string, NamedRouteBranch> {
-  for (const route of routes) {
-    const branch = [...parentBranch, route];
-
-    if (route.name) {
-      const name = normalizeRouteName(route.name);
-      if (index.has(name)) {
-        throw new Error(`Duplicate route name "${name}" detected.`);
-      }
-      index.set(name, branch);
-    }
-
-    if (route.children?.length) {
-      buildNamedRouteIndex(route.children, branch, index);
-    }
-  }
-
-  return index;
-}
-
-function buildRouteIdIndex(
-  routes: RouteDefinition[],
-  parentBranch: NamedRouteBranch = [],
-  index = new Map<string, NamedRouteBranch>(),
-): Map<string, NamedRouteBranch> {
+  routeIds = new Map<string, NamedRouteBranch>(),
+  namedRoutes = new Map<string, NamedRouteBranch>(),
+): {
+  routeIds: Map<string, NamedRouteBranch>;
+  namedRoutes: Map<string, NamedRouteBranch>;
+} {
   for (const route of routes) {
     const branch = [...parentBranch, route];
 
     if (route.id) {
       const id = normalizeRouteId(route.id);
-      if (index.has(id)) {
+      if (routeIds.has(id)) {
         throw new Error(`Duplicate route id "${id}" detected.`);
       }
-      index.set(id, branch);
+      routeIds.set(id, branch);
+    }
+
+    if (route.name) {
+      const name = normalizeRouteName(route.name);
+      if (namedRoutes.has(name)) {
+        throw new Error(`Duplicate route name "${name}" detected.`);
+      }
+      namedRoutes.set(name, branch);
     }
 
     if (route.children?.length) {
-      buildRouteIdIndex(route.children, branch, index);
+      buildRouteIndexes(route.children, branch, routeIds, namedRoutes);
     }
   }
 
-  return index;
+  return { routeIds, namedRoutes };
 }
 
 function segmentSpecificity(segment: string): number {
@@ -1050,13 +1038,11 @@ function normalizeInsertionIndex(
   return index;
 }
 
-function removeNamedRouteFromTree(
+function removeRouteFromTree(
   routes: RouteDefinition[],
-  name: string,
+  matches: (route: RouteDefinition) => boolean,
 ): boolean {
-  const directIndex = routes.findIndex((route) =>
-    route.name ? normalizeRouteName(route.name) === name : false,
-  );
+  const directIndex = routes.findIndex(matches);
   if (directIndex >= 0) {
     routes.splice(directIndex, 1);
     return true;
@@ -1067,35 +1053,7 @@ function removeNamedRouteFromTree(
       continue;
     }
 
-    if (removeNamedRouteFromTree(route.children, name)) {
-      if (route.children.length === 0) {
-        route.children = undefined;
-      }
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function removeRouteByIdFromTree(
-  routes: RouteDefinition[],
-  id: string,
-): boolean {
-  const directIndex = routes.findIndex((route) =>
-    route.id ? normalizeRouteId(route.id) === id : false,
-  );
-  if (directIndex >= 0) {
-    routes.splice(directIndex, 1);
-    return true;
-  }
-
-  for (const route of routes) {
-    if (!route.children?.length) {
-      continue;
-    }
-
-    if (removeRouteByIdFromTree(route.children, id)) {
+    if (removeRouteFromTree(route.children, matches)) {
       if (route.children.length === 0) {
         route.children = undefined;
       }
@@ -1669,8 +1627,8 @@ export class Router extends EventTarget {
     }
 
     const additions = cloneRouteDefinitions(routes);
-    const insertedIds = buildRouteIdIndex(additions);
-    const insertedNames = buildNamedRouteIndex(additions);
+    const { routeIds: insertedIds, namedRoutes: insertedNames } =
+      buildRouteIndexes(additions);
     for (const id of insertedIds.keys()) {
       if (this.routeIds.has(id)) {
         throw new Error(`Duplicate route id "${id}" detected.`);
@@ -1711,10 +1669,16 @@ export class Router extends EventTarget {
 
   removeRoute(selector: string | RouteSelector): boolean {
     const resolvedSelector = resolveRouteSelector(selector);
-    const removed =
+    const removed = removeRouteFromTree(this.routeTree, (route) =>
       resolvedSelector.type === "id"
-        ? removeRouteByIdFromTree(this.routeTree, resolvedSelector.value)
-        : removeNamedRouteFromTree(this.routeTree, resolvedSelector.value);
+        ? Boolean(
+            route.id && normalizeRouteId(route.id) === resolvedSelector.value,
+          )
+        : Boolean(
+            route.name &&
+            normalizeRouteName(route.name) === resolvedSelector.value,
+          ),
+    );
     if (!removed) {
       return false;
     }
@@ -2456,8 +2420,9 @@ export class Router extends EventTarget {
       this.routeTree,
       this.routePatternCache,
     );
-    this.routeIds = buildRouteIdIndex(this.routeTree);
-    this.namedRoutes = buildNamedRouteIndex(this.routeTree);
+    const { routeIds, namedRoutes } = buildRouteIndexes(this.routeTree);
+    this.routeIds = routeIds;
+    this.namedRoutes = namedRoutes;
     this.readonlyRoutes = freezeRouteDefinitions(this.routeTree);
     this.routeCount = countRouteDefinitions(this.routeTree);
   }

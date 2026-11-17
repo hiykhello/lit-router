@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.1.7 (2026-11-17)
+
+### Fixed
+
+- **Declaration File Import Extensions**: Rewrote relative `.ts` specifiers to `.js` in emitted `dist/*.d.ts` files via `vite-plugin-dts` `beforeWriteFile`, ensuring downstream TypeScript consumers using `node16`/`nodenext` or standard `bundler` resolution can resolve types cleanly.
+
+### Changed
+
+- **Directive & Core Deduplication**: Extracted a shared `BaseRouteDirective` class in `src/directives.ts` (avoiding redundant click listener re-attachment and duplicating context/active-state management), unified `buildRouteIndexes` into a single-pass tree traversal, and consolidated `removeRouteFromTree` in `src/router-core.ts`.
+- **Tooling & Vite 8 Alignment**: Migrated package management and CI workflow to `pnpm` (`pnpm@12.21.0`), updated `vite.config.ts` to native `rolldownOptions`, and added `.prettierignore` for `pnpm-lock.yaml` and build outputs.
+
 ## 2.1.6 (2026-11-09)
 
 ### Fixed

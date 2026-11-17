@@ -1,8 +1,9 @@
 {
   "name": "@elelcode/lit-router",
-  "version": "2.1.6",
+  "version": "2.1.7",
   "description": "A Navigation API-first router for Web Components and Lit, built around native browser capabilities such as URLPattern, Navigation API, and View Transitions API.",
   "type": "module",
+  "packageManager": "pnpm@12.21.0",
   "main": "./dist/router.js",
   "module": "./dist/router.js",
   "types": "./dist/router.d.ts",
@@ -22,10 +23,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run tests/router_test.ts tests/extensions_test.ts",
     "test:watch": "vitest tests/router_test.ts tests/extensions_test.ts",
-    "test:e2e": "npm run build:e2e && vitest run tests/e2e/e2e_test.ts",
+    "test:e2e": "pnpm run build:e2e && vitest run tests/e2e/e2e_test.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+    "prepublishOnly": "pnpm run typecheck && pnpm run test && pnpm run build"
   },
   "repository": {
     "type": "git",

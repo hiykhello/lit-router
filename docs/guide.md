@@ -105,7 +105,7 @@ Key files:
 Run it with:
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 ## Core Concepts

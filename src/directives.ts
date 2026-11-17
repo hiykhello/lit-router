@@ -122,60 +122,61 @@ function mergeTargetOptions(
 }
 
 // ==========================================
-// 1. routerLink Directive
+// Shared Base Directive
 // ==========================================
 
-class RouterLinkDirective extends AsyncDirective {
-  private element?: Element;
-  private router?: Router;
-  private target?: RouteTarget;
-  private options: RouterLinkDirectiveOptions = {};
+abstract class BaseRouteDirective<
+  TTarget extends RouteTarget | RouteSelector,
+  TOptions extends ActiveRouteDirectiveOptions,
+> extends AsyncDirective {
+  protected element?: Element;
+  protected router?: Router;
+  protected target?: TTarget;
+  protected options = {} as TOptions;
   private unsubscribeContext?: () => void;
   private listeningRouter?: Router;
   private lastActiveClass?: string;
   private isExplicitRouter = false;
 
-  constructor(partInfo: PartInfo) {
+  constructor(partInfo: PartInfo, directiveName: string) {
     super(partInfo);
     if (partInfo.type !== PartType.ELEMENT) {
-      throw new Error("The `routerLink` directive must be used on an element.");
+      throw new Error(
+        `The \`${directiveName}\` directive must be used on an element.`,
+      );
     }
   }
 
   render(
-    _routerOrTarget: Router | RouteTarget,
-    _targetOrOptions?: RouteTarget | RouterLinkDirectiveOptions,
-    _options?: RouterLinkDirectiveOptions,
+    _routerOrTarget: Router | TTarget,
+    _targetOrOptions?: TTarget | TOptions,
+    _options?: TOptions,
   ): typeof noChange {
     return noChange;
   }
 
   override update(
     part: ElementPart,
-    args: [
-      Router | RouteTarget,
-      (RouteTarget | RouterLinkDirectiveOptions)?,
-      RouterLinkDirectiveOptions?,
-    ],
+    args: [Router | TTarget, (TTarget | TOptions)?, TOptions?],
   ): typeof noChange {
     this.element = part.element;
 
     let routerArg: Router | undefined;
-    let targetArg: RouteTarget;
-    let optionsArg: RouterLinkDirectiveOptions | undefined;
+    let targetArg: TTarget;
+    let optionsArg: TOptions | undefined;
 
     if (args[0] instanceof Router) {
       routerArg = args[0];
-      targetArg = args[1] as RouteTarget;
+      targetArg = args[1] as TTarget;
       optionsArg = args[2];
     } else {
       routerArg = undefined;
-      targetArg = args[0] as RouteTarget;
-      optionsArg = args[1] as RouterLinkDirectiveOptions | undefined;
+      targetArg = args[0] as TTarget;
+      optionsArg = args[1] as TOptions | undefined;
     }
 
     this.target = targetArg;
-    this.options = optionsArg ?? {};
+    this.options = (optionsArg ?? {}) as TOptions;
 
     if (routerArg) {
       this.isExplicitRouter = true;
@@ -194,7 +195,7 @@ class RouterLinkDirective extends AsyncDirective {
           });
         }
       } else {
-        this.applyState();
+        this.syncState();
       }
     }
 
@@ -219,14 +220,14 @@ class RouterLinkDirective extends AsyncDirective {
   private setRouter(router: Router): void {
     if (this.router === router) {
       this.attachRouterListener();
-      this.applyState();
+      this.syncState();
       return;
     }
 
     this.detachRouterListener();
     this.router = router;
     this.attachRouterListener();
-    this.applyState();
+    this.syncState();
   }
 
   private attachRouterListener(): void {
@@ -251,70 +252,34 @@ class RouterLinkDirective extends AsyncDirective {
     this.updateActiveStatus();
   };
 
-  private readonly onClick = (event: Event): void => {
-    if (!this.element || !this.router || !this.target) {
-      return;
-    }
-    const mouseEvent = event as MouseEvent;
-    if (!shouldHandleClick(mouseEvent, this.element)) {
-      return;
-    }
-
-    event.preventDefault();
-    const effectiveTarget = mergeTargetOptions(this.target, this.options);
-    if (this.options.replace) {
-      this.router.replace(effectiveTarget);
-    } else {
-      this.router.push(effectiveTarget);
-    }
-  };
-
-  private applyState(): void {
-    const element = this.element;
-    if (!element || !this.target) {
-      return;
-    }
-
-    // Attach click handler once
-    element.removeEventListener("click", this.onClick);
-    element.addEventListener("click", this.onClick);
-
-    // Compute and assign href
-    const shouldAssign =
-      this.options.assignHref === true ||
-      (this.options.assignHref !== false && isAnchor(element));
-
-    if (shouldAssign) {
-      const effectiveTarget = mergeTargetOptions(this.target, this.options);
-      const href = this.router
-        ? this.router.link(effectiveTarget)
-        : typeof effectiveTarget === "string"
-          ? effectiveTarget
-          : effectiveTarget instanceof URL
-            ? effectiveTarget.href
-            : "";
-      if (href) {
-        element.setAttribute("href", href);
-      }
-    }
-
-    if (this.options.replace) {
-      element.setAttribute("data-router-replace", "");
-    } else {
-      element.removeAttribute("data-router-replace");
-    }
-
+  protected syncState(): void {
     this.updateActiveStatus();
   }
 
-  private updateActiveStatus(): void {
+  protected getDefaultActiveClass(): string | undefined {
+    return undefined;
+  }
+
+  protected resolveIsActiveTarget(): RouteTarget | RouteSelector {
+    return typeof this.target === "string"
+      ? this.target
+      : mergeTargetOptions(this.target as RouteTarget, this.options);
+  }
+
+  protected updateActiveStatus(): void {
     const element = this.element;
     if (!element || !this.router || !this.target) {
       return;
     }
 
-    const { activeClass, exact, ariaCurrent, params, query, hash } =
-      this.options;
+    const {
+      activeClass = this.getDefaultActiveClass(),
+      exact,
+      ariaCurrent,
+      params,
+      query,
+      hash,
+    } = this.options;
     const isAnchorEl = isAnchor(element);
     const shouldManageAria = ariaCurrent !== undefined || isAnchorEl;
 
@@ -322,8 +287,7 @@ class RouterLinkDirective extends AsyncDirective {
       return;
     }
 
-    const effectiveTarget = mergeTargetOptions(this.target, this.options);
-    const isActive = this.router.isActive(effectiveTarget, {
+    const isActive = this.router.isActive(this.resolveIsActiveTarget(), {
       exact,
       params,
       query,
@@ -359,7 +323,6 @@ class RouterLinkDirective extends AsyncDirective {
       }
       this.element.removeAttribute("aria-current");
     }
-    this.element?.removeEventListener("click", this.onClick);
     this.detachRouterListener();
     this.unsubscribeContext?.();
     this.unsubscribeContext = undefined;
@@ -370,8 +333,96 @@ class RouterLinkDirective extends AsyncDirective {
       this.seekRouter();
     } else if (this.router) {
       this.attachRouterListener();
-      this.applyState();
+      this.syncState();
     }
+  }
+}
+
+// ==========================================
+// 1. routerLink Directive
+// ==========================================
+
+class RouterLinkDirective extends BaseRouteDirective<
+  RouteTarget,
+  RouterLinkDirectiveOptions
+> {
+  private clickListeningElement?: Element;
+
+  constructor(partInfo: PartInfo) {
+    super(partInfo, "routerLink");
+  }
+
+  private readonly onClick = (event: Event): void => {
+    if (!this.element || !this.router || !this.target) {
+      return;
+    }
+    const mouseEvent = event as MouseEvent;
+    if (!shouldHandleClick(mouseEvent, this.element)) {
+      return;
+    }
+
+    event.preventDefault();
+    const effectiveTarget = mergeTargetOptions(this.target, this.options);
+    if (this.options.replace) {
+      this.router.replace(effectiveTarget);
+    } else {
+      this.router.push(effectiveTarget);
+    }
+  };
+
+  private attachClickListener(element: Element): void {
+    if (this.clickListeningElement === element) {
+      return;
+    }
+    this.clickListeningElement?.removeEventListener("click", this.onClick);
+    element.addEventListener("click", this.onClick);
+    this.clickListeningElement = element;
+  }
+
+  protected override syncState(): void {
+    const element = this.element;
+    if (!element || !this.target) {
+      return;
+    }
+
+    this.attachClickListener(element);
+
+    // Compute and assign href
+    const shouldAssign =
+      this.options.assignHref === true ||
+      (this.options.assignHref !== false && isAnchor(element));
+
+    if (shouldAssign) {
+      const effectiveTarget = mergeTargetOptions(this.target, this.options);
+      const href = this.router
+        ? this.router.link(effectiveTarget)
+        : typeof effectiveTarget === "string"
+          ? effectiveTarget
+          : effectiveTarget instanceof URL
+            ? effectiveTarget.href
+            : "";
+      if (href) {
+        element.setAttribute("href", href);
+      }
+    }
+
+    if (this.options.replace) {
+      element.setAttribute("data-router-replace", "");
+    } else {
+      element.removeAttribute("data-router-replace");
+    }
+
+    this.updateActiveStatus();
+  }
+
+  protected override resolveIsActiveTarget(): RouteTarget {
+    return mergeTargetOptions(this.target!, this.options);
+  }
+
+  override disconnected(): void {
+    this.clickListeningElement?.removeEventListener("click", this.onClick);
+    this.clickListeningElement = undefined;
+    super.disconnected();
   }
 }
 
@@ -391,201 +442,16 @@ export const routerLink = directive(RouterLinkDirective) as {
 // 2. activeRoute Directive
 // ==========================================
 
-class ActiveRouteDirective extends AsyncDirective {
-  private element?: Element;
-  private router?: Router;
-  private target?: RouteTarget | RouteSelector;
-  private options: ActiveRouteDirectiveOptions = {};
-  private unsubscribeContext?: () => void;
-  private listeningRouter?: Router;
-  private lastActiveClass?: string;
-  private isExplicitRouter = false;
-
+class ActiveRouteDirective extends BaseRouteDirective<
+  RouteTarget | RouteSelector,
+  ActiveRouteDirectiveOptions
+> {
   constructor(partInfo: PartInfo) {
-    super(partInfo);
-    if (partInfo.type !== PartType.ELEMENT) {
-      throw new Error(
-        "The `activeRoute` directive must be used on an element.",
-      );
-    }
+    super(partInfo, "activeRoute");
   }
 
-  render(
-    _routerOrTarget: Router | RouteTarget | RouteSelector,
-    _targetOrOptions?:
-      RouteTarget | RouteSelector | ActiveRouteDirectiveOptions,
-    _options?: ActiveRouteDirectiveOptions,
-  ): typeof noChange {
-    return noChange;
-  }
-
-  override update(
-    part: ElementPart,
-    args: [
-      Router | RouteTarget | RouteSelector,
-      (RouteTarget | RouteSelector | ActiveRouteDirectiveOptions)?,
-      ActiveRouteDirectiveOptions?,
-    ],
-  ): typeof noChange {
-    this.element = part.element;
-
-    let routerArg: Router | undefined;
-    let targetArg: RouteTarget | RouteSelector;
-    let optionsArg: ActiveRouteDirectiveOptions | undefined;
-
-    if (args[0] instanceof Router) {
-      routerArg = args[0];
-      targetArg = args[1] as RouteTarget | RouteSelector;
-      optionsArg = args[2];
-    } else {
-      routerArg = undefined;
-      targetArg = args[0] as RouteTarget | RouteSelector;
-      optionsArg = args[1] as ActiveRouteDirectiveOptions | undefined;
-    }
-
-    this.target = targetArg;
-    this.options = optionsArg ?? {};
-
-    if (routerArg) {
-      this.isExplicitRouter = true;
-      this.unsubscribeContext?.();
-      this.unsubscribeContext = undefined;
-      this.setRouter(routerArg);
-    } else {
-      this.isExplicitRouter = false;
-      if (!this.router) {
-        this.seekRouter();
-        if (!this.element.isConnected) {
-          queueMicrotask(() => {
-            if (!this.router && this.element?.isConnected) {
-              this.seekRouter();
-            }
-          });
-        }
-      } else {
-        this.updateActiveStatus();
-      }
-    }
-
-    return noChange;
-  }
-
-  private seekRouter(): void {
-    if (!this.element) {
-      return;
-    }
-    this.unsubscribeContext?.();
-    this.unsubscribeContext = requestContext(
-      this.element,
-      routerContext,
-      (router) => {
-        this.setRouter(router);
-      },
-      true,
-    );
-  }
-
-  private setRouter(router: Router): void {
-    if (this.router === router) {
-      this.attachRouterListener();
-      this.updateActiveStatus();
-      return;
-    }
-
-    this.detachRouterListener();
-    this.router = router;
-    this.attachRouterListener();
-    this.updateActiveStatus();
-  }
-
-  private attachRouterListener(): void {
-    if (!this.router || this.listeningRouter === this.router) {
-      return;
-    }
-    this.router.addEventListener("route-change", this.onRouteChange);
-    this.listeningRouter = this.router;
-  }
-
-  private detachRouterListener(): void {
-    if (this.listeningRouter) {
-      this.listeningRouter.removeEventListener(
-        "route-change",
-        this.onRouteChange,
-      );
-      this.listeningRouter = undefined;
-    }
-  }
-
-  private readonly onRouteChange = (): void => {
-    this.updateActiveStatus();
-  };
-
-  private updateActiveStatus(): void {
-    const element = this.element;
-    if (!element || !this.router || !this.target) {
-      return;
-    }
-
-    const {
-      activeClass = "active",
-      exact,
-      ariaCurrent,
-      params,
-      query,
-      hash,
-    } = this.options;
-    const effectiveTarget =
-      typeof this.target === "string"
-        ? this.target
-        : mergeTargetOptions(this.target as RouteTarget, this.options);
-    const isActive = this.router.isActive(effectiveTarget, {
-      exact,
-      params,
-      query,
-      hash,
-    });
-
-    if (this.lastActiveClass && this.lastActiveClass !== activeClass) {
-      toggleClasses(element, this.lastActiveClass, false);
-    }
-    this.lastActiveClass = activeClass;
-
-    if (activeClass) {
-      toggleClasses(element, activeClass, isActive);
-    }
-
-    if (ariaCurrent === false) {
-      element.removeAttribute("aria-current");
-    } else if (ariaCurrent !== undefined || isAnchor(element)) {
-      const token = typeof ariaCurrent === "string" ? ariaCurrent : "page";
-      if (isActive) {
-        element.setAttribute("aria-current", token);
-      } else {
-        element.removeAttribute("aria-current");
-      }
-    }
-  }
-
-  override disconnected(): void {
-    if (this.element) {
-      if (this.lastActiveClass) {
-        toggleClasses(this.element, this.lastActiveClass, false);
-        this.lastActiveClass = undefined;
-      }
-      this.element.removeAttribute("aria-current");
-    }
-    this.detachRouterListener();
-    this.unsubscribeContext?.();
-    this.unsubscribeContext = undefined;
-  }
-
-  override reconnected(): void {
-    if (this.element && (!this.isExplicitRouter || !this.router)) {
-      this.seekRouter();
-    } else if (this.router) {
-      this.attachRouterListener();
-      this.updateActiveStatus();
-    }
+  protected override getDefaultActiveClass(): string {
+    return "active";
   }
 }
 
